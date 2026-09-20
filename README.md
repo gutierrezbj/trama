@@ -14,7 +14,6 @@ La aprobación visual no implica que las miniaturas o los rótulos de las imáge
 3. [Arquitectura propuesta](docs/ARQUITECTURA.md)
 4. [Identidad e interfaz](docs/IDENTIDAD.md)
 5. [Plan de trabajo](tasks/todo.md)
-6. [Evidencia de muestras](docs/MUESTRAS.md)
 
 ## Alcance
 V1: producción de vídeo, incluidos efectos sonoros y música para montaje.
