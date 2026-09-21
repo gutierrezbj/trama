@@ -34,7 +34,10 @@ export interface Location {
   status: "available" | "offline" | "archived";
   size: number;
   last_seen_at: string;
-  kind: "local" | "pack";
+  kind: "local" | "pack" | "drive";
+  external_id?: string | null;
+  checksum?: string | null;
+  verified_at?: string | null;
   pack_id?: string | null;
   pack_label?: string | null;
   inner_path?: string | null;
@@ -112,6 +115,8 @@ export interface Asset {
   };
   summary: Summary;
   available: boolean;
+  remote_available: boolean;
+  in_drive: boolean;
   archived: boolean;
   extractable: boolean;
   duplicate_of: string | null;
@@ -151,7 +156,7 @@ export interface Named {
 
 export interface Job {
   id: string;
-  kind: "import" | "analyze" | "derive";
+  kind: "import" | "analyze" | "derive" | "index_pack" | "extract" | "drive_upload" | "backup";
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   attempts: number;
   progress: number;
@@ -203,12 +208,52 @@ export interface Browse {
   media_files: number;
 }
 
+export interface AuthStatus {
+  mode: "off" | "password";
+  password_set: boolean;
+  cookie_secure: boolean;
+  misconfigured: boolean;
+  authenticated?: boolean;
+}
+
+export interface DriveStatus {
+  configured: boolean;
+  connected: boolean;
+  folder_name: string;
+  scope: string;
+  client_file: string | null;
+  redirect_uri: string | null;
+  account: string | null;
+  folder_id: string | null;
+  files?: number;
+  quota?: { usage: number; limit: number | null };
+  error: string | null;
+}
+
+export interface Backup {
+  id: string;
+  path: string;
+  created_at: string;
+  db_sha256: string;
+  db_bytes: number;
+  derivatives_bytes: number;
+  derivatives_files: number;
+  assets: number;
+  status: "done" | "failed" | "uploaded";
+  drive_file_id: string | null;
+  error: string | null;
+  present: boolean;
+}
+
 export interface Config {
   version: string;
   data_dir: string;
   categories: string[];
   tools: { ok: boolean; ffmpeg?: string; ffprobe?: string; error?: string };
   sources: Source[];
+  auth: AuthStatus;
+  drive: DriveStatus;
+  backups_dir: string;
 }
 
 export interface Stats {
@@ -254,6 +299,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { ...(init?.body ? { "Content-Type": "application/json" } : {}), ...(init?.headers || {}) },
   });
+  if (res.status === 401 && !path.startsWith("/api/auth/")) {
+    window.dispatchEvent(new CustomEvent("trama:unauthorized"));
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -301,6 +349,21 @@ export const api = {
   releasePack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ released: number }>(`/api/packs/${id}/release`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
   storage: () => request<Storage>("/api/storage"),
+
+  authStatus: () => request<AuthStatus>("/api/auth/status"),
+  login: (password: string) => request<{ ok: boolean }>("/api/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+
+  driveStatus: () => request<DriveStatus>("/api/drive/status"),
+  driveAuthStart: () => request<{ url: string }>("/api/drive/auth/start", { method: "POST" }),
+  driveDisconnect: () => request<{ ok: boolean }>("/api/drive/disconnect", { method: "POST" }),
+  driveUploadAsset: (id: string) => request<{ job_id: string | null; message: string | null }>(`/api/assets/${id}/drive-upload`, { method: "POST" }),
+  driveUploadSelection: (id: string) => request<{ queued: number; skipped_offline: number }>(`/api/selections/${id}/drive-upload`, { method: "POST" }),
+  driveVerifyAsset: (id: string) => request<{ ok: boolean }>(`/api/assets/${id}/drive-verify`, { method: "POST" }),
+
+  backups: () => request<{ backups: Backup[]; dir: string; keep: number; last_job: Job | null }>("/api/backups"),
+  createBackup: (label: string, upload: boolean) => request<{ job_id: string }>("/api/backups", { method: "POST", body: JSON.stringify({ label, upload }) }),
+  verifyBackup: (id: string) => request<{ ok: boolean; error?: string; derivatives_present?: number; derivatives_files?: number; assets?: number }>(`/api/backups/${id}/verify`),
 
   collections: () => request<Named[]>("/api/collections"),
   collection: (id: string) => request<Named & { assets: Asset[] }>(`/api/collections/${id}`),

@@ -43,6 +43,8 @@ def original_path_for_version(db: Database, settings: Settings, version_id: str)
         (version_id,),
     )
     for row in rows:
+        if row["kind"] == "drive":
+            continue  # remoto: se sirve en streaming desde Drive (api.asset_original), nunca es ruta local
         if row["kind"] == "pack":
             if not row["pack_id"]:
                 continue
@@ -125,7 +127,7 @@ class Worker:
     def claim(self) -> dict | None:
         with self.db.tx() as conn:
             running = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) AS n FROM jobs WHERE status = 'running' GROUP BY kind")}
-            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1}
+            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1}
             blocked = [k for k, lim in limits.items() if running.get(k, 0) >= lim]
             exclude = f" AND kind NOT IN ({','.join('?' for _ in blocked)})" if blocked else ""
             row = conn.execute(
@@ -167,6 +169,10 @@ class Worker:
                 self._run_index_pack(job)
             elif job["kind"] == "extract":
                 self._run_extract(job)
+            elif job["kind"] == "drive_upload":
+                self._run_drive_upload(job)
+            elif job["kind"] == "backup":
+                self._run_backup(job)
             else:
                 raise RuntimeError(f"Tipo de trabajo desconocido: {job['kind']}")
             self._finish(job_id, "done")
@@ -419,6 +425,137 @@ class Worker:
         if failures:
             raise RuntimeError(msg + " · " + "; ".join(failures[:5]) + (f" (+{len(failures) - 5})" if len(failures) > 5 else ""))
         self._progress(job_id, 1.0, msg)
+
+
+    def _run_backup(self, job: dict) -> None:
+        from .backup import create_backup
+
+        payload = loads(job["payload"], {})
+        self._progress(job["id"], 0.1, "Copiando catálogo y derivados")
+        result = create_backup(self.db, self.settings, payload.get("label", ""))
+        self._progress(job["id"], 0.9, f"Snapshot {Path(result['path']).name}")
+        if payload.get("upload") and self.settings.drive_configured:
+            self._upload_backup_to_drive(job["id"], result)
+        self._progress(job["id"], 1.0, f"Respaldo creado: {result['assets']} fichas, {result['derivatives_files']} derivados")
+
+    def _upload_backup_to_drive(self, job_id: str, result: dict) -> None:
+        import shutil
+        import tempfile
+
+        from .drive import DriveClient, mime_for
+
+        folder = Path(result["path"])
+        tmp_zip = Path(tempfile.mkdtemp(prefix="trama-bak-")) / (folder.name + ".zip")
+        shutil.make_archive(str(tmp_zip.with_suffix("")), "zip", folder)
+        client = DriveClient(self.settings, getattr(self, "drive_transport", None))
+        try:
+            size = tmp_zip.stat().st_size
+            session = client.start_upload(tmp_zip.name, size, mime_for(".zip"), client.ensure_folder(), {"trama": "backup"})
+            meta = client.upload_file(tmp_zip, session, size, 0, lambda b: self._progress(job_id, 0.9 + 0.1 * b / max(1, size), "Subiendo respaldo a Drive"))
+            with self.db.tx() as conn:
+                conn.execute("UPDATE backups SET status = 'uploaded', drive_file_id = ? WHERE id = ?", (meta.get("id"), result["id"]))
+        finally:
+            client.close()
+            shutil.rmtree(tmp_zip.parent, ignore_errors=True)
+
+    def _run_drive_upload(self, job: dict) -> None:
+        """Sube un original a la carpeta privada de Drive. Reanudable: la sesión y el offset se
+        guardan en el payload; verificable: md5 local contra md5Checksum de Drive."""
+        from .drive import DriveClient, DriveError, md5_of, mime_for
+
+        job_id = job["id"]
+        payload = loads(job["payload"], {})
+        version_id = job["version_id"]
+        existing = self.db.one("SELECT id, external_id FROM locations WHERE version_id = ? AND kind = 'drive' AND status = 'available'", (version_id,))
+        if existing:
+            self._progress(job_id, 1.0, "Ya estaba en Drive")
+            return
+        path = original_path_for_version(self.db, self.settings, version_id)
+        if path is None:
+            raise RuntimeError("Original no accesible localmente: no se puede subir")
+        version = self.db.one("SELECT * FROM asset_versions WHERE id = ?", (version_id,))
+        size = path.stat().st_size
+        client = DriveClient(self.settings, getattr(self, "drive_transport", None))
+        try:
+            folder_id = client.ensure_folder()
+            session = payload.get("session_uri")
+            offset = 0
+            if session:
+                try:
+                    offset = client.upload_status(session, size)
+                except DriveError:
+                    session = None
+            if not session:
+                session = client.start_upload(path.name, size, mime_for(version["ext"]), folder_id, {"trama_version": version_id, "sha256": version["sha256"]})
+                offset = 0
+                with self.db.tx() as conn:
+                    conn.execute("UPDATE jobs SET payload = ? WHERE id = ?", (json.dumps({**payload, "session_uri": session}), job_id))
+
+            def on_progress(sent: int) -> None:
+                self._progress(job_id, 0.05 + 0.85 * sent / max(1, size), f"{sent // 2**20} / {size // 2**20} MB")
+                with self.db.tx() as conn:
+                    conn.execute("UPDATE jobs SET payload = ? WHERE id = ?", (json.dumps({**payload, "session_uri": session, "bytes_sent": sent}), job_id))
+
+            self._progress(job_id, 0.05, f"Reanudando desde {offset // 2**20} MB" if offset else "Subiendo")
+            meta = client.upload_file(path, session, size, offset, on_progress, lambda: self._cancel_requested(job_id) or self._stop.is_set())
+            self._progress(job_id, 0.92, "Verificando md5")
+            local_md5 = md5_of(path)
+            remote_md5 = meta.get("md5Checksum")
+            if remote_md5 and remote_md5 != local_md5:
+                client.delete_file(meta["id"])
+                raise RuntimeError(f"Verificación fallida: md5 local {local_md5} ≠ Drive {remote_md5}; archivo remoto eliminado")
+            source_id = ensure_drive_source(self.db, folder_id)
+            now = now_iso()
+            with self.db.tx() as conn:
+                conn.execute(
+                    "INSERT INTO locations(id, version_id, source_id, rel_path, file_name, size, mtime, status, last_seen_at, kind, external_id, checksum, verified_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'available', ?, 'drive', ?, ?, ?)",
+                    (new_id("loc"), version_id, source_id, f"drive:{meta['id']}", path.name, size, time.time(), now, meta["id"], remote_md5 or local_md5, now),
+                )
+            self._progress(job_id, 1.0, "Subido y verificado")
+        finally:
+            client.close()
+
+
+def ensure_drive_source(db: Database, folder_id: str) -> str:
+    source_id = f"drive_{folder_id[:12]}"
+    if db.one("SELECT id FROM sources WHERE id = ?", (source_id,)) is None:
+        with db.tx() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO sources(id, kind, label, root_path, created_at) VALUES (?, 'drive', 'Google Drive', ?, ?)",
+                (source_id, f"drive:{folder_id}", now_iso()),
+            )
+    return source_id
+
+
+def enqueue_drive_upload(db: Database, version_id: str) -> str | None:
+    now = now_iso()
+    with db.tx() as conn:
+        if conn.execute("SELECT 1 FROM locations WHERE version_id = ? AND kind = 'drive' AND status = 'available'", (version_id,)).fetchone():
+            return None
+        pending = conn.execute("SELECT id FROM jobs WHERE kind = 'drive_upload' AND version_id = ? AND status IN ('queued','running')", (version_id,)).fetchone()
+        if pending:
+            return pending["id"]
+        job_id = new_id("job")
+        conn.execute(
+            "INSERT INTO jobs(id, kind, version_id, status, payload, created_at, max_attempts) VALUES (?, 'drive_upload', ?, 'queued', '{}', ?, 5)",
+            (job_id, version_id, now),
+        )
+    return job_id
+
+
+def enqueue_backup(db: Database, label: str = "", upload: bool = False) -> str:
+    now = now_iso()
+    with db.tx() as conn:
+        pending = conn.execute("SELECT id FROM jobs WHERE kind = 'backup' AND status IN ('queued','running')").fetchone()
+        if pending:
+            return pending["id"]
+        job_id = new_id("job")
+        conn.execute(
+            "INSERT INTO jobs(id, kind, status, payload, created_at, max_attempts) VALUES (?, 'backup', 'queued', ?, ?, 1)",
+            (job_id, json.dumps({"label": label, "upload": upload}), now),
+        )
+    return job_id
 
 
 def enqueue_index_pack(db: Database, pack_id: str) -> str:

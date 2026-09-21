@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Asset, type Config, type Named, type Pack, type Stats, CATEGORY_LABELS } from "./api";
+import { api, type Asset, type AuthStatus, type Config, type Named, type Pack, type Stats, CATEGORY_LABELS } from "./api";
 import { CollectionDetail, CollectionsList } from "./Collections";
+import { CopiasView } from "./Copias";
 import { Explore, type ExploreState, initialExplore } from "./Explore";
 import { useInterval } from "./hooks";
-import { IconMenu, IconSearch } from "./icons";
+import { IconLogout, IconMenu, IconSearch } from "./icons";
 import { ImportView, PackDetail } from "./Import";
+import { Login } from "./Login";
 import { Inspector } from "./Inspector";
 import { SelectionDetail, SelectionsList } from "./Selections";
 import { Sidebar, type View } from "./Sidebar";
@@ -12,7 +14,7 @@ import { Sidebar, type View } from "./Sidebar";
 function readHash(): View {
   const h = window.location.hash.replace(/^#\/?/, "").split("?")[0];
   const [name, id] = h.split("/");
-  if (name === "collections" || name === "selections" || name === "favorites" || name === "import") return { name, id: id || undefined };
+  if (name === "collections" || name === "selections" || name === "favorites" || name === "import" || name === "copias") return { name, id: id || undefined };
   if (name === "category" && id) return { name: "explore", category: id };
   return { name: "explore" };
 }
@@ -29,7 +31,35 @@ function writeHash(v: View, assetId: string | null) {
   if (window.location.hash !== h) window.history.replaceState(null, "", h);
 }
 
+/** Aviso de la vuelta del flujo OAuth de Drive (`#/copias?drive=connected` o `?drive_error=`). */
+function readDriveNotice(): string | null {
+  const q = window.location.hash.split("?")[1];
+  if (!q) return null;
+  const sp = new URLSearchParams(q);
+  if (sp.get("drive") === "connected") return "Google Drive conectado. Las credenciales quedan solo en el servidor.";
+  if (sp.get("drive_error")) return `No se pudo conectar Drive: ${sp.get("drive_error")}`;
+  return null;
+}
+
 export default function App() {
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [driveNotice] = useState<string | null>(readDriveNotice);
+
+  useEffect(() => {
+    const check = () => api.authStatus().then((s) => { setAuth(s); setAuthed(s.mode !== "password" || !!s.authenticated); }).catch(() => setAuthed(true));
+    check();
+    const onUnauthorized = () => { setAuthed(false); api.authStatus().then(setAuth).catch(() => undefined); };
+    window.addEventListener("trama:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("trama:unauthorized", onUnauthorized);
+  }, []);
+
+  if (authed === null) return <div className="login"><div className="muted">Cargando…</div></div>;
+  if (!authed && auth) return <Login status={auth} onDone={() => { setAuthed(true); }} />;
+  return <Shell auth={auth} driveNotice={driveNotice} onLogout={async () => { await api.logout(); setAuthed(false); }} />;
+}
+
+function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; driveNotice: string | null; onLogout: () => void }) {
   const [view, setViewState] = useState<View>(readHash);
   const [query, setQuery] = useState("");
   const [explore, setExplore] = useState<ExploreState>(initialExplore);
@@ -121,6 +151,9 @@ export default function App() {
     case "favorites":
       body = <Explore title="Favoritos" subtitle="Lo que has marcado con el corazón." state={explore} onState={setExplore} fixed={{ favorite: true }} {...exploreProps} emptyHint="Todavía no hay favoritos." />;
       break;
+    case "copias":
+      body = <CopiasView config={config} busy={busy} notice={driveNotice} />;
+      break;
     case "import":
       body = view.id
         ? <PackDetail id={view.id} onBack={() => setView({ name: "import" })} onExplore={(packId) => { setExplore({ ...initialExplore, packId }); setView({ name: "explore" }); }} />
@@ -158,6 +191,9 @@ export default function App() {
           )}
           {stats && stats.analysis_failed > 0 && !busy && (
             <button type="button" className="status-pill" onClick={() => setView({ name: "import" })}>{stats.analysis_failed} con error de análisis</button>
+          )}
+          {auth?.mode === "password" && (
+            <button type="button" className="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión" onClick={onLogout}><IconLogout /></button>
           )}
         </header>
         <main className="content" id="main">{body}</main>

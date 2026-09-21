@@ -94,6 +94,13 @@ export const IconClock = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></svg>
 );
 
+export const IconCloud = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M7 18a4 4 0 0 1-.6-7.95A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9H7Z" /></svg>
+);
+export const IconLogout = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9" /></svg>
+);
+
 export const CATEGORY_ICONS: Record<string, (p: SVGProps<SVGSVGElement>) => JSX.Element> = {
   vfx: IconSparkle,
   overlays: IconLayers,

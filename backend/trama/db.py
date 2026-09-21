@@ -38,6 +38,8 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
         self._write_lock = threading.RLock()
+        self._all: list[sqlite3.Connection] = []
+        self._all_lock = threading.Lock()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.path), timeout=30, check_same_thread=False, isolation_level=None)
@@ -46,6 +48,8 @@ class Database:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=30000")
+        with self._all_lock:
+            self._all.append(conn)
         return conn
 
     @property
@@ -103,10 +107,16 @@ class Database:
         return applied
 
     def close(self) -> None:
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            conn.close()
-            self._local.conn = None
+        """Cierra TODAS las conexiones abiertas por cualquier hilo (necesario en Windows para
+        poder mover el archivo, p. ej. al restaurar un respaldo)."""
+        with self._all_lock:
+            conns, self._all = self._all, []
+        for conn in conns:
+            try:
+                conn.close()
+            except sqlite3.ProgrammingError:
+                pass
+        self._local.conn = None
 
 
 def _split_statements(sql: str) -> list[str]:

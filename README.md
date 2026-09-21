@@ -4,9 +4,9 @@ Tu biblioteca de producción. Un producto de JRGB.
 TRAMA convierte un repositorio de recursos audiovisuales en una biblioteca visual: descubrir, entender, seleccionar y obtener el original.
 
 ## Estado
-E1 (piloto local, 2026-09-20) y E2 (pack completo en ZIP, 2026-09-21) implementados y verificados en el equipo del propietario: ver [BUILD_NOTES.md](BUILD_NOTES.md).
-Destino previsto: https://trama.jrgblanco.com (no desplegado ni configurado; E3).
-Drive, acceso online e integración con Escenda no están implementados.
+E1 (piloto local), E2 (pack completo en ZIP) y E3 (acceso privado, Drive y respaldos) implementados y verificados en el equipo del propietario: ver [BUILD_NOTES.md](BUILD_NOTES.md).
+Destino previsto: https://trama.jrgblanco.com. No desplegado: el plan está en [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md) y requiere encargo específico.
+Drive: adaptador implementado y probado contra un simulador; queda pendiente crear el cliente OAuth y conectarlo. Integración con Escenda (E4) no implementada.
 
 ## Arranque rápido (Windows)
 Requisitos: Python 3.13 y Node 22 en el PATH. FFmpeg no es necesario: se descarga un binario estático dentro del entorno virtual.
@@ -25,10 +25,12 @@ Comandos individuales: `python -m trama check` (entorno), `python -m trama migra
 
 Pruebas: `backend\.venv\Scripts\python -m pytest` desde `backend/`.
 
+Acceso privado: `python -m trama set-password` genera `TRAMA_PASSWORD_HASH`; con `TRAMA_AUTH_MODE=password` toda la API exige sesión. Respaldos: `python -m trama backup`, `verify-backup`, `restore`. Drive: guarda tu `client_secret.json` en `%LOCALAPPDATA%\TRAMA\drive\` y conecta desde «Copias y Drive».
+
 ## Comienza aquí
 1. [Encargo para el agente](docs/ENCARGO-AGENTE.md)
 2. [Producto y experiencia](docs/PRODUCTO.md)
-3. [Arquitectura propuesta](docs/ARQUITECTURA.md), [ADR-001](docs/ADR-001-stack-e1.md) y [ADR-002](docs/ADR-002-packs-e2.md)
+3. [Arquitectura propuesta](docs/ARQUITECTURA.md), [ADR-001](docs/ADR-001-stack-e1.md), [ADR-002](docs/ADR-002-packs-e2.md) y [ADR-003](docs/ADR-003-acceso-drive-e3.md)
 4. [Identidad e interfaz](docs/IDENTIDAD.md)
 5. [Plan de trabajo](tasks/todo.md)
 

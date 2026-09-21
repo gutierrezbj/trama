@@ -179,8 +179,11 @@ export function Inspector(props: Props) {
             </div>
           </div>
         )}
-        {!asset.available && !asset.archived && (
+        {!asset.available && !asset.archived && !asset.remote_available && (
           <div className="notice warn">La fuente está desconectada: la ficha y las previews se conservan, pero el original no puede obtenerse ahora.</div>
+        )}
+        {!asset.available && !asset.archived && asset.remote_available && (
+          <div className="notice">El original no está en este equipo, pero sí en tu Google Drive: se descarga en streaming desde allí.</div>
         )}
         {asset.duplicate_of && (
           <div className="notice">Mismos bytes que otra ficha (duplicado confirmado por SHA-256). Se conserva porque tiene ediciones o pertenencias. <button type="button" className="btn ghost small" onClick={() => props.onOpenAsset?.(asset.duplicate_of!)}>Ver la ficha principal</button></div>
@@ -305,12 +308,20 @@ export function Inspector(props: Props) {
               return <button key={id} type="button" className="btn ghost small" onClick={() => props.onOpenSelection(id)}>{sel?.name ?? "…"}</button>;
             })}</div>
           )}
-          <a className="btn block" href={originalUrl(asset)} download={asset.locations[0]?.file_name} aria-disabled={!asset.available && !asset.extractable} onClick={(e) => !asset.available && !asset.extractable && e.preventDefault()}>
-            <IconDownload />{asset.archived ? "Extraer y descargar original" : "Descargar original"}
+          <a className="btn block" href={originalUrl(asset)} download={asset.locations[0]?.file_name} aria-disabled={!asset.available && !asset.extractable && !asset.remote_available} onClick={(e) => !asset.available && !asset.extractable && !asset.remote_available && e.preventDefault()}>
+            <IconDownload />{asset.archived ? "Extraer y descargar original" : !asset.available && asset.remote_available ? "Descargar original desde Drive" : "Descargar original"}
           </a>
-          <a className="btn ghost block" href={originalUrl(asset, true)} target="_blank" rel="noreferrer" aria-disabled={!asset.available} onClick={(e) => !asset.available && e.preventDefault()}>
+          <a className="btn ghost block" href={originalUrl(asset, true)} target="_blank" rel="noreferrer" aria-disabled={!asset.available && !asset.remote_available} onClick={(e) => !asset.available && !asset.remote_available && e.preventDefault()}>
             <IconExternal />Ver original
           </a>
+          {asset.in_drive ? (
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <span className="tiny">Copia verificada en Google Drive{asset.locations.find((l) => l.kind === "drive")?.verified_at ? ` · ${new Date(asset.locations.find((l) => l.kind === "drive")!.verified_at!).toLocaleDateString()}` : ""}</span>
+              <button type="button" className="btn ghost small" onClick={async () => { try { const r = await api.driveVerifyAsset(asset.id); setToast(r.ok ? "Copia en Drive verificada" : "La copia en Drive no coincide o falta"); load(true); } catch (e) { setToast((e as Error).message); } }}>Comprobar en Drive</button>
+            </div>
+          ) : (
+            <button type="button" className="btn ghost small" disabled={!asset.available} title={asset.available ? "" : "El original no está en este equipo; no se puede subir desde aquí"} onClick={async () => { try { const r = await api.driveUploadAsset(asset.id); setToast(r.message ?? "Subida a Drive en cola (reanudable, verificada por md5)"); } catch (e) { setToast((e as Error).message); } }}>Copiar a Drive</button>
+          )}
           {asset.available && asset.locations.some((l) => l.kind === "pack" && l.status === "available") && (
             <button type="button" className="btn ghost small" onClick={async () => { const r = await api.releaseAsset(asset.id); setToast(`Copia extraída liberada (${r.released})`); load(true); }}>Liberar copia extraída de la caché</button>
           )}
@@ -320,8 +331,8 @@ export function Inspector(props: Props) {
           <div className="tiny">Archivo original</div>
           {asset.locations.map((l) => (
             <div key={l.id} className="path">
-              {l.kind === "pack" ? `${l.pack_label ?? "pack"} › ${l.inner_path}` : `${l.source_label} / ${l.rel_path}`}
-              {l.status === "offline" ? " · offline" : l.status === "archived" ? " · en el ZIP" : l.kind === "pack" ? " · extraído" : ""}
+              {l.kind === "pack" ? `${l.pack_label ?? "pack"} › ${l.inner_path}` : l.kind === "drive" ? `Google Drive › ${l.file_name}` : `${l.source_label} / ${l.rel_path}`}
+              {l.status === "offline" ? " · offline" : l.status === "archived" ? " · en el ZIP" : l.kind === "pack" ? " · extraído" : l.kind === "drive" ? " · remoto" : ""}
               {l.entry_error ? ` · error: ${l.entry_error}` : ""}
             </div>
           ))}
