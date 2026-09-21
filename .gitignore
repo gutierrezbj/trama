@@ -26,3 +26,7 @@ inventarios/
 *.csv
 .DS_Store
 Thumbs.db
+# TRAMA E1: entorno local
+.claude/
+docs/capturas/*.tmp
+frontend/tsconfig.tsbuildinfo
