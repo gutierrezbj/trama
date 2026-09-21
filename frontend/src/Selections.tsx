@@ -46,6 +46,7 @@ export function SelectionDetail(props: DetailProps) {
   const sel = useAsync(() => api.selection(props.id), [props.id, props.refreshKey]);
   const [name, setName] = useState<string | null>(null);
   const [notes, setNotes] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const s = sel.data;
   const move = async (index: number, dir: -1 | 1) => {
     if (!s) return;
@@ -67,10 +68,12 @@ export function SelectionDetail(props: DetailProps) {
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         </h1>
         <span className="muted">{s?.items.length ?? 0} {s?.items.length === 1 ? "recurso" : "recursos"}</span>
-        <button type="button" className="btn ghost small danger" style={{ marginLeft: "auto" }} onClick={async () => { if (s && window.confirm(`¿Eliminar la selección «${s.name}»? Los recursos y sus originales no se borran.`)) { await api.deleteSelection(s.id); props.onChanged(); props.onBack(); } }}>Eliminar selección</button>
+        <button type="button" className="btn small" style={{ marginLeft: "auto" }} onClick={async () => { try { const r = await api.driveUploadSelection(props.id); setMsg(`${r.queued} subidas a Drive en cola${r.skipped_offline ? `, ${r.skipped_offline} omitidas (original no disponible aquí)` : ""}`); } catch (e) { setMsg((e as Error).message); } }}>Copiar la selección a Drive</button>
+        <button type="button" className="btn ghost small danger" onClick={async () => { if (s && window.confirm(`¿Eliminar la selección «${s.name}»? Los recursos y sus originales no se borran.`)) { await api.deleteSelection(s.id); props.onChanged(); props.onBack(); } }}>Eliminar selección</button>
       </div>
       <textarea className="notes" aria-label="Notas de la selección" placeholder="Notas de producción…" value={notes ?? s?.notes ?? ""} onChange={(e) => setNotes(e.target.value)}
         onBlur={async () => { if (notes !== null && s && notes !== s.notes) { await api.patchSelection(s.id, { notes }); sel.reload(true); } setNotes(null); }} />
+      {msg && <div className="notice" role="status" style={{ marginBottom: 12 }}>{msg}</div>}
       {s && s.items.length === 0 && <div className="empty"><h2>Selección vacía</h2><p>Añade recursos desde «Añadir a selección» en la ficha.</p></div>}
       <div className="sel-items">
         {(s?.items ?? []).map((a, i) => (

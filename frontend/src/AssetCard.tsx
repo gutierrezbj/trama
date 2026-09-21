@@ -119,7 +119,8 @@ function AssetCardInner({ asset, selected, hovering, reducedMotion, onHover, onO
         onBlur={() => onHover(null)}
       >
         {media}
-        {!asset.available && !asset.archived && <span className="badge offline">Original offline</span>}
+        {!asset.available && !asset.archived && !asset.remote_available && <span className="badge offline">Original offline</span>}
+        {!asset.available && asset.remote_available && <span className="badge drive">Solo en Drive</span>}
         {asset.duplicate_of && <span className="badge offline" style={{ color: "var(--text-2)" }}>Duplicado</span>}
         {asset.version.media_kind !== "image" && !isOther ? <span className="badge left">{durationLabel}</span> : null}
         <span className="badge right">{category} · {ext}</span>

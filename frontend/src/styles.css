@@ -272,6 +272,15 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 .job .status.running { color: var(--accent); }
 .job .err { grid-column: 1 / -1; color: var(--danger); word-break: break-word; }
 
+/* ---------- acceso ---------- */
+.login { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--bg); }
+.login-card { width: min(420px, 100%); padding: 28px; border-radius: var(--r-l); background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.login-card h1 { margin: 0; font-size: 22px; }
+.login-card p { margin: 0; }
+.login-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); }
+.login-field input { width: 100%; }
+.badge.drive { top: 10px; left: 10px; bottom: auto; color: var(--ok); }
+
 /* ---------- responsive ---------- */
 .menu-toggle { display: none; }
 .inspector-close { display: none; }

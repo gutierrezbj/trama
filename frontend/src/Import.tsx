@@ -264,7 +264,7 @@ function ImportRow({ imp, sources, onCancel }: { imp: Import; sources: Config["s
 export function JobsPanel({ jobs, onRetry, onCancel, onRetryAll }: { jobs: Job[]; onRetry: (id: string) => void; onCancel: (id: string) => void; onRetryAll: () => void }) {
   const failed = jobs.filter((j) => j.status === "failed");
   const active = jobs.filter((j) => j.status === "running" || j.status === "queued");
-  const labels: Record<string, string> = { import: "Incorporación", analyze: "Análisis", derive: "Previews", index_pack: "Índice de pack", extract: "Extracción" };
+  const labels: Record<string, string> = { import: "Incorporación", analyze: "Análisis", derive: "Previews", index_pack: "Índice de pack", extract: "Extracción", drive_upload: "Copia a Drive", backup: "Snapshot" };
   return (
     <>
       <div className="tiny">{active.length} activos · {failed.length} fallidos {failed.length > 0 && <button type="button" className="btn small" style={{ marginLeft: 8 }} onClick={onRetryAll}>Reintentar todos</button>}</div>

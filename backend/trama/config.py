@@ -103,6 +103,23 @@ class Settings:
     zip_max_depth: int = 32
     zip_max_ratio: int = 400                  # relación descomprimido/comprimido máxima aceptada
     extract_concurrency: int = 1
+    # E3 — acceso privado
+    auth_mode: str = "off"                    # off | password  (off solo tiene sentido en loopback)
+    password_hash: str | None = None          # pbkdf2$<iter>$<salt hex>$<hash hex>, ver `python -m trama set-password`
+    api_tokens: list[str] = field(default_factory=list)  # tokens portadores para integraciones (E4)
+    cookie_secure: bool = False               # True detrás de HTTPS
+    session_hours: int = 24 * 14
+    # E3 — Google Drive
+    drive_client_file: Path | None = None     # client_secret.json (fuera del repo); None = Drive no configurado
+    drive_redirect_uri: str | None = None     # por defecto http://<host>:<port>/api/drive/auth/callback
+    drive_folder_name: str = "TRAMA"
+    drive_chunk_bytes: int = 8 * 1024 * 1024
+    drive_api_base: str = "https://www.googleapis.com"
+    drive_oauth_base: str = "https://oauth2.googleapis.com"
+    drive_auth_base: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    # E3 — respaldos
+    backup_dir: Path | None = None            # por defecto <data_dir>/respaldos
+    backup_keep: int = 5
     env_file: Path | None = None
     extra: dict[str, str] = field(default_factory=dict)
 
@@ -126,8 +143,28 @@ class Settings:
     def logs_dir(self) -> Path:
         return self.data_dir / "logs"
 
+    @property
+    def drive_dir(self) -> Path:
+        return self.data_dir / "drive"
+
+    @property
+    def drive_token_file(self) -> Path:
+        return self.drive_dir / "token.json"
+
+    @property
+    def secret_file(self) -> Path:
+        return self.data_dir / "secret.key"
+
+    @property
+    def backups_dir(self) -> Path:
+        return self.backup_dir or (self.data_dir / "respaldos")
+
+    @property
+    def drive_configured(self) -> bool:
+        return bool(self.drive_client_file and Path(self.drive_client_file).is_file())
+
     def ensure_dirs(self) -> None:
-        for d in (self.data_dir, self.derivatives_dir, self.cache_dir, self.inventories_dir, self.logs_dir):
+        for d in (self.data_dir, self.derivatives_dir, self.cache_dir, self.inventories_dir, self.logs_dir, self.drive_dir, self.backups_dir):
             d.mkdir(parents=True, exist_ok=True)
 
     def source_for_id(self, source_id: str) -> Path | None:
@@ -162,6 +199,21 @@ def load_settings(env_file: Path | None = None, overrides: dict[str, str] | None
         cache_max_bytes=int(float(values.get("TRAMA_CACHE_MAX_GB", "30")) * 1024**3),
         min_free_bytes=int(float(values.get("TRAMA_MIN_FREE_GB", "10")) * 1024**3),
         extract_concurrency=max(1, int(values.get("TRAMA_EXTRACT_CONCURRENCY", "1"))),
+        auth_mode=values.get("TRAMA_AUTH_MODE", "off").strip().lower(),
+        password_hash=values.get("TRAMA_PASSWORD_HASH") or None,
+        api_tokens=[t.strip() for t in values.get("TRAMA_API_TOKENS", "").split(",") if t.strip()],
+        cookie_secure=values.get("TRAMA_COOKIE_SECURE", "0").strip().lower() in ("1", "true", "yes"),
+        session_hours=int(values.get("TRAMA_SESSION_HOURS", str(24 * 14))),
+        drive_client_file=Path(values["TRAMA_DRIVE_CLIENT_FILE"]).expanduser() if values.get("TRAMA_DRIVE_CLIENT_FILE") else (
+            data_dir / "drive" / "client_secret.json" if (data_dir / "drive" / "client_secret.json").is_file() else None
+        ),
+        drive_redirect_uri=values.get("TRAMA_DRIVE_REDIRECT_URI") or None,
+        drive_folder_name=values.get("TRAMA_DRIVE_FOLDER", "TRAMA"),
+        drive_api_base=values.get("TRAMA_DRIVE_API_BASE", "https://www.googleapis.com"),
+        drive_oauth_base=values.get("TRAMA_DRIVE_OAUTH_BASE", "https://oauth2.googleapis.com"),
+        drive_auth_base=values.get("TRAMA_DRIVE_AUTH_BASE", "https://accounts.google.com/o/oauth2/v2/auth"),
+        backup_dir=Path(values["TRAMA_BACKUP_DIR"]).expanduser() if values.get("TRAMA_BACKUP_DIR") else None,
+        backup_keep=max(1, int(values.get("TRAMA_BACKUP_KEEP", "5"))),
         env_file=env_file if env_file.exists() else None,
         extra=values,
     )

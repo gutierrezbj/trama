@@ -30,3 +30,4 @@ Thumbs.db
 .claude/
 docs/capturas/*.tmp
 frontend/tsconfig.tsbuildinfo
+scripts/client_secret_simulado.json

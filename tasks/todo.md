@@ -31,11 +31,13 @@ No modificar los originales. Medir rendimiento en el equipo real; no prometer ti
 - [ ] Pendiente menor: vista dedicada de duplicados (hoy: filtro «Solo duplicados y candidatos» y `/api/duplicates`).
 - [ ] Pendiente menor: el pack real no trae MOGRT/AEP con vídeo hermano; el enlace de preview del proveedor solo está probado con fixtures.
 
-## E3 — Google Drive y acceso privado
-- [ ] OAuth, adaptador Drive, transferencia reanudable y caché.
-- [ ] Autenticación/autorización de catálogo, originales y previews.
-- [ ] Respaldos y restauración probada.
-- [ ] Despliegue y dominio solo mediante encargo específico.
+## E3 — Google Drive y acceso privado (entregado 2026-09-21, ver BUILD_NOTES.md)
+- [x] OAuth (PKCE, alcance mínimo `drive.file`), adaptador Drive REST v3 sobre httpx, subida reanudable con verificación md5 como trabajo propio, descarga en streaming con rangos (`docs/ADR-003-acceso-drive-e3.md`). Probado contra un servidor simulado: **no hay cliente OAuth real todavía**; la interfaz lo indica como «no configurado».
+- [x] Autenticación/autorización de catálogo, originales y previews: modo contraseña (PBKDF2 + cookie firmada), bloqueo por intentos, tokens portadores; toda la API exige sesión.
+- [x] Respaldos y restauración probada: snapshots consistentes con manifiesto y SHA-256, retención, verificación, restauración ensayada en test y comando `restore`; subida opcional del snapshot a Drive.
+- [ ] Despliegue y dominio solo mediante encargo específico → plan en `docs/DESPLIEGUE.md`, sin ejecutar.
+- [ ] Pendiente: crear el cliente OAuth en Google Cloud (propietario) y conectar Drive de verdad; primera subida real medida.
+- [ ] Pendiente menor: catalogar carpetas ya existentes en Drive (requeriría alcance `drive.readonly`; fuera de E3).
 
 ## E4 — Integración Escenda
 - [ ] Validar contrato con implementación actual de Escenda.

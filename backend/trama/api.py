@@ -6,12 +6,17 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+import secrets
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .auth import COOKIE_NAME, PUBLIC_PATHS, LoginGuard, auth_status, is_authenticated, load_secret, sign_session, verify_password
+from .backup import BackupError, list_backups, verify_backup
+from .drive import DriveClient, DriveError, DriveNotConfigured, DriveNotConnected, build_auth_url, exchange_code, forget_token, load_token, new_pkce
 from .config import ARCHIVE_EXT, CATEGORIES, LUT_EXT, REPO_ROOT, MEDIA_EXTENSIONS, REQUIRED_APP, Settings, source_id_for
 from .db import Database, loads, new_id, normalize_text, now_iso
 from .importer import build_search_text, ensure_source, resolve_subpath
@@ -29,6 +34,8 @@ from .packs import (
 from .worker import (
     Worker,
     archived_pack_locations,
+    enqueue_backup,
+    enqueue_drive_upload,
     enqueue_extract,
     enqueue_import,
     enqueue_index_pack,
@@ -40,10 +47,14 @@ FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 
 class AppState:
-    def __init__(self, settings: Settings, db: Database, worker: Worker):
+    def __init__(self, settings: Settings, db: Database, worker: Worker, drive_transport=None):
         self.settings = settings
         self.db = db
         self.worker = worker
+        self.secret = load_secret(settings)
+        self.guard = LoginGuard(db)
+        self.drive_transport = drive_transport
+        self.pkce: dict[str, str] = {}  # state → code_verifier (flujo OAuth en curso)
 
 
 # ----------------------------------------------------------------- serialización
@@ -78,7 +89,7 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
     version_id = row["version_id"]
     analysis = loads(row.get("analysis"), {})
     locations = [dict(r) for r in db.query(
-        "SELECT l.id, l.source_id, s.label AS source_label, l.rel_path, l.file_name, l.status, l.size, l.last_seen_at, l.kind, "
+        "SELECT l.id, l.source_id, s.label AS source_label, l.rel_path, l.file_name, l.status, l.size, l.last_seen_at, l.kind, l.external_id, l.checksum, l.verified_at, "
         "e.pack_id, p.label AS pack_label, e.inner_path, e.status AS entry_status, e.error AS entry_error, e.unsafe_reason "
         "FROM locations l JOIN sources s ON s.id = l.source_id LEFT JOIN pack_entries e ON e.id = l.pack_entry_id LEFT JOIN packs p ON p.id = e.pack_id "
         "WHERE l.version_id = ? ORDER BY l.status = 'available' DESC, l.last_seen_at DESC",
@@ -90,7 +101,8 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
     media_kind = row["media_kind"]
     summary = _summary(analysis, media_kind)
     alpha = bool(summary["alpha_format"]) and summary["alpha_used"] is not False and media_kind == "video"
-    available = any(l["status"] == "available" for l in locations)
+    available = any(l["status"] == "available" and l["kind"] != "drive" for l in locations)
+    remote_available = any(l["status"] == "available" and l["kind"] == "drive" for l in locations)
     archived = any(l["status"] == "archived" for l in locations)
 
     if media_kind == "video":
@@ -156,6 +168,8 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         },
         "summary": summary,
         "available": available,
+        "remote_available": remote_available,
+        "in_drive": remote_available,
         "archived": archived and not available,
         "extractable": archived and any(l["kind"] == "pack" and l["status"] == "archived" for l in locations),
         "duplicate_of": row.get("duplicate_of"),
@@ -241,20 +255,70 @@ class OrderBody(BaseModel):
     asset_ids: list[str]
 
 
+class LoginBody(BaseModel):
+    password: str = Field(min_length=1, max_length=512)
+
+
+class BackupCreate(BaseModel):
+    label: str = ""
+    upload: bool = False
+
+
 # ----------------------------------------------------------------- app
 
-def create_app(settings: Settings, db: Database | None = None, start_worker: bool = True) -> FastAPI:
+def create_app(settings: Settings, db: Database | None = None, start_worker: bool = True, drive_transport=None) -> FastAPI:
     settings.ensure_dirs()
     db = db or Database(settings.db_path)
     db.migrate()
     worker = Worker(db, settings)
-    state = AppState(settings, db, worker)
+    worker.drive_transport = drive_transport  # type: ignore[attr-defined]
+    state = AppState(settings, db, worker, drive_transport)
     for root in settings.allowed_roots:
         if root.is_dir():
             ensure_source(db, root)
 
-    app = FastAPI(title="TRAMA", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app = FastAPI(title="TRAMA", version=__version__, docs_url="/api/docs" if settings.auth_mode == "off" else None, openapi_url="/api/openapi.json" if settings.auth_mode == "off" else None)
     app.state.trama = state
+
+    @app.middleware("http")
+    async def require_auth(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and path not in PUBLIC_PATHS:
+            if not is_authenticated(state.settings, state.secret, request.cookies.get(COOKIE_NAME), request.headers.get("authorization")):
+                return JSONResponse({"detail": "Inicia sesión para acceder a TRAMA"}, status_code=401, headers={"Cache-Control": "no-store"})
+        response = await call_next(request)
+        if path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "private, no-store")
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    # ---- acceso ---------------------------------------------------------------
+    @app.get("/api/auth/status")
+    def get_auth_status(request: Request):
+        st_ = auth_status(state.settings)
+        st_["authenticated"] = is_authenticated(state.settings, state.secret, request.cookies.get(COOKIE_NAME), request.headers.get("authorization"))
+        return st_
+
+    @app.post("/api/auth/login")
+    def login(body: LoginBody, request: Request, response: Response):
+        if state.settings.auth_mode != "password":
+            return {"ok": True, "mode": "off"}
+        ip = request.client.host if request.client else "?"
+        wait = state.guard.blocked_for(ip)
+        if wait:
+            raise HTTPException(429, f"Demasiados intentos; espera {wait} s")
+        if not verify_password(body.password, state.settings.password_hash):
+            failures = state.guard.register_failure(ip)
+            raise HTTPException(401, f"Contraseña incorrecta ({failures} fallos)")
+        state.guard.reset(ip)
+        token = sign_session(state.secret, state.settings.session_hours)
+        response.set_cookie(COOKIE_NAME, token, max_age=state.settings.session_hours * 3600, httponly=True, samesite="strict", secure=state.settings.cookie_secure, path="/")
+        return {"ok": True}
+
+    @app.post("/api/auth/logout")
+    def logout(response: Response):
+        response.delete_cookie(COOKIE_NAME, path="/")
+        return {"ok": True}
 
     @app.on_event("startup")
     def _startup() -> None:
@@ -264,6 +328,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     @app.on_event("shutdown")
     def _shutdown() -> None:
         worker.stop()
+        db.close()
 
     def S() -> AppState:
         return state
@@ -284,7 +349,155 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             "media_extensions": sorted(MEDIA_EXTENSIONS),
             "tools": tools,
             "sources": _sources(st),
+            "auth": auth_status(st.settings),
+            "drive": _drive_status(st, probe=False),
+            "backups_dir": str(st.settings.backups_dir),
         }
+
+    # ---- Google Drive ---------------------------------------------------------
+    def _drive_status(st: AppState, probe: bool = True) -> dict:
+        s = st.settings
+        out: dict[str, Any] = {
+            "configured": s.drive_configured,
+            "connected": s.drive_configured and s.drive_token_file.is_file(),
+            "folder_name": s.drive_folder_name,
+            "scope": "drive.file (solo archivos creados por TRAMA)",
+            "client_file": str(s.drive_client_file) if s.drive_client_file else None,
+            "redirect_uri": None,
+            "account": None,
+            "folder_id": None,
+            "error": None,
+        }
+        try:
+            from .drive import redirect_uri
+
+            out["redirect_uri"] = redirect_uri(s)
+        except Exception:
+            pass
+        if out["connected"]:
+            tok = load_token(s) or {}
+            out["folder_id"] = tok.get("folder_id")
+            out["files"] = st.db.one("SELECT COUNT(*) AS n FROM locations WHERE kind = 'drive' AND status = 'available'")["n"]
+            if probe:
+                client = None
+                try:
+                    client = DriveClient(s, st.drive_transport)
+                    about = client.about()
+                    out["account"] = about.get("user", {}).get("emailAddress")
+                    quota = about.get("storageQuota", {})
+                    out["quota"] = {"usage": int(quota.get("usage", 0)), "limit": int(quota["limit"]) if quota.get("limit") else None}
+                    out["folder_id"] = client.ensure_folder()
+                except DriveError as exc:
+                    out["error"] = str(exc)
+                finally:
+                    if client:
+                        client.close()
+        return out
+
+    @app.get("/api/drive/status")
+    def drive_status(st: AppState = Depends(S)):
+        return _drive_status(st)
+
+    @app.post("/api/drive/auth/start")
+    def drive_auth_start(st: AppState = Depends(S)):
+        try:
+            state_token, verifier = new_pkce()
+            url = build_auth_url(st.settings, state_token, verifier)
+        except DriveNotConfigured as exc:
+            raise HTTPException(409, str(exc))
+        st.pkce = {state_token: verifier}  # un solo flujo en curso
+        return {"url": url}
+
+    @app.get("/api/drive/auth/callback")
+    def drive_auth_callback(state: str = "", code: str = "", error: str = "", st: AppState = Depends(S)):
+        # Público (Google redirige aquí sin cookie), pero solo es útil con un state emitido por una sesión autenticada.
+        if error:
+            return RedirectResponse(f"/#/copias?drive_error={error}", status_code=303)
+        verifier = st.pkce.pop(state, None)
+        if not verifier:
+            raise HTTPException(400, "Estado OAuth desconocido o caducado; inicia la conexión de nuevo")
+        try:
+            exchange_code(st.settings, code, verifier, st.drive_transport)
+        except DriveError as exc:
+            return RedirectResponse(f"/#/copias?drive_error={exc}", status_code=303)
+        return RedirectResponse("/#/copias?drive=connected", status_code=303)
+
+    @app.post("/api/drive/disconnect")
+    def drive_disconnect(st: AppState = Depends(S)):
+        forget_token(st.settings)
+        return {"ok": True}
+
+    @app.post("/api/assets/{asset_id}/drive-upload", status_code=202)
+    def drive_upload_asset(asset_id: str, st: AppState = Depends(S)):
+        row = get_asset_row(st.db, asset_id)
+        _require_drive(st)
+        if original_path_for_version(st.db, st.settings, row["version_id"]) is None:
+            raise HTTPException(409, "El original no está disponible en este equipo; no se puede subir")
+        job_id = enqueue_drive_upload(st.db, row["version_id"])
+        st.worker.notify()
+        return {"job_id": job_id, "message": None if job_id else "Ya estaba en Drive"}
+
+    @app.post("/api/selections/{sid}/drive-upload", status_code=202)
+    def drive_upload_selection(sid: str, st: AppState = Depends(S)):
+        _named_get(st, "selections", sid)
+        _require_drive(st)
+        rows = st.db.query("SELECT a.version_id FROM selection_items si JOIN assets a ON a.id = si.asset_id WHERE si.selection_id = ?", (sid,))
+        queued = skipped = 0
+        for r in rows:
+            if original_path_for_version(st.db, st.settings, r["version_id"]) is None:
+                skipped += 1
+                continue
+            if enqueue_drive_upload(st.db, r["version_id"]):
+                queued += 1
+        st.worker.notify()
+        return {"queued": queued, "skipped_offline": skipped}
+
+    def _require_drive(st: AppState) -> None:
+        if not st.settings.drive_configured:
+            raise HTTPException(409, "Drive no configurado: falta client_secret.json")
+        if not st.settings.drive_token_file.is_file():
+            raise HTTPException(409, "Drive no conectado: autoriza el acceso desde «Copias y Drive»")
+
+    @app.post("/api/assets/{asset_id}/drive-verify")
+    def drive_verify_asset(asset_id: str, st: AppState = Depends(S)):
+        row = get_asset_row(st.db, asset_id)
+        _require_drive(st)
+        loc = st.db.one("SELECT * FROM locations WHERE version_id = ? AND kind = 'drive' ORDER BY status = 'available' DESC, verified_at DESC", (row["version_id"],))
+        if loc is None:
+            raise HTTPException(404, "Este recurso no está en Drive")
+        client = DriveClient(st.settings, st.drive_transport)
+        try:
+            meta = client.get_file(loc["external_id"])
+        finally:
+            client.close()
+        ok = bool(meta) and not meta.get("trashed") and int(meta.get("size", -1)) == loc["size"] and (not meta.get("md5Checksum") or meta["md5Checksum"] == loc["checksum"])
+        with st.db.tx() as conn:
+            conn.execute("UPDATE locations SET status = ?, verified_at = ? WHERE id = ?", ("available" if ok else "offline", now_iso(), loc["id"]))
+        return {"ok": ok, "remote": meta}
+
+    # ---- respaldos --------------------------------------------------------------
+    @app.get("/api/backups")
+    def get_backups(st: AppState = Depends(S)):
+        job = st.db.one("SELECT id, status, progress, message, error FROM jobs WHERE kind = 'backup' ORDER BY created_at DESC LIMIT 1")
+        return {"backups": list_backups(st.db), "dir": str(st.settings.backups_dir), "keep": st.settings.backup_keep, "last_job": dict(job) if job else None}
+
+    @app.post("/api/backups", status_code=202)
+    def create_backup_job(body: BackupCreate, st: AppState = Depends(S)):
+        if body.upload:
+            _require_drive(st)
+        job_id = enqueue_backup(st.db, body.label.strip()[:40], body.upload)
+        st.worker.notify()
+        return {"job_id": job_id}
+
+    @app.get("/api/backups/{backup_id}/verify")
+    def verify_backup_api(backup_id: str, st: AppState = Depends(S)):
+        row = st.db.one("SELECT * FROM backups WHERE id = ?", (backup_id,))
+        if row is None:
+            raise HTTPException(404, "Respaldo no encontrado")
+        try:
+            return {"ok": True, **verify_backup(Path(row["path"]))}
+        except BackupError as exc:
+            return {"ok": False, "error": str(exc)}
 
     def _sources(st: AppState) -> list[dict]:
         out = []
@@ -701,7 +914,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
 
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str, st: AppState = Depends(S)):
-        return serialize_asset(st, get_asset_row(st.db, asset_id), detail=True)
+        row = get_asset_row(st.db, asset_id)
+        original_path_for_version(st.db, st.settings, row["version_id"])  # refresca available/offline/archived contra el disco
+        return serialize_asset(st, row, detail=True)
 
     @app.patch("/api/assets/{asset_id}")
     def patch_asset(asset_id: str, body: AssetPatch, st: AppState = Depends(S)):
@@ -826,15 +1041,43 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             return FileResponse(_derivative_path(st, row["version_id"], "proxy"), media_type="video/mp4")
         raise HTTPException(404, "Este tipo de archivo no tiene preview")
 
+    def _stream_from_drive(st: AppState, loc: dict, request: Request, inline: bool):
+        """El original solo está en Drive: se sirve en streaming con rangos, sin exponer enlaces de Drive."""
+        try:
+            client = DriveClient(st.settings, st.drive_transport)
+        except DriveError as exc:
+            raise HTTPException(409, f"Original solo en Drive y Drive no disponible: {exc}")
+        try:
+            status, headers, body = client.stream_file(loc["external_id"], request.headers.get("range"))
+        except DriveError as exc:
+            client.close()
+            raise HTTPException(502, str(exc))
+        from urllib.parse import quote
+
+        disposition = "inline" if inline else "attachment"
+        headers["Content-Disposition"] = f"{disposition}; filename*=utf-8''{quote(loc['file_name'])}"
+        headers.setdefault("Accept-Ranges", "bytes")
+
+        def gen():
+            try:
+                yield from body
+            finally:
+                client.close()
+
+        return StreamingResponse(gen(), status_code=status, headers=headers, media_type=headers.get("content-type", "application/octet-stream"))
+
     @app.get("/api/assets/{asset_id}/original")
-    def asset_original(asset_id: str, inline: bool = False, st: AppState = Depends(S)):
+    def asset_original(asset_id: str, request: Request, inline: bool = False, st: AppState = Depends(S)):
         row = get_asset_row(st.db, asset_id)
         path = original_path_for_version(st.db, st.settings, row["version_id"])
         if path is None:
             # Copia solo dentro de un pack: extracción bajo demanda (síncrona, una entrada) y se sirve.
             locs = archived_pack_locations(st.db, row["version_id"])
             if not locs:
-                raise HTTPException(404, "El original no puede obtenerse: la fuente está offline")
+                drive_loc = st.db.one("SELECT * FROM locations WHERE version_id = ? AND kind = 'drive' AND status = 'available'", (row["version_id"],))
+                if drive_loc is None:
+                    raise HTTPException(404, "El original no puede obtenerse: la fuente está offline")
+                return _stream_from_drive(st, drive_loc, request, inline)
             loc = locs[0]
             pack = dict(st.db.one("SELECT * FROM packs WHERE id = ?", (loc["pack_id"],)))
             entry = dict(st.db.one("SELECT * FROM pack_entries WHERE id = ?", (loc["entry_id"],)))

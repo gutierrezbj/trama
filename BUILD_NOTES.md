@@ -138,3 +138,54 @@ Categorías inferidas del pack (solo por nombre de carpeta, revisables): VFX 154
 - `docs/capturas/07-lut-demo.png`: ficha de un LUT con la demostración antes/después rotulada.
 - `docs/capturas/08-galeria-archivados.png`: galería virtualizada con recursos catalogados sin extraer.
 Ancho de teléfono: sin cambios respecto a E1 (ficha superpuesta, navegación plegable).
+
+---
+
+# BUILD_NOTES — E3 acceso privado, Google Drive y respaldos
+
+Fecha: 2026-09-21. Mismo equipo (garage1). Decisiones en `docs/ADR-003-acceso-drive-e3.md`.
+
+## Qué funciona (verificado)
+- **Acceso privado** (`TRAMA_AUTH_MODE=password`): contraseña del propietario con PBKDF2-SHA256, cookie de sesión firmada (HttpOnly, SameSite=Strict, Secure opcional), bloqueo progresivo por IP tras 5 fallos persistido en SQLite, tokens portadores para integraciones. Toda la API, incluidas previews y originales, responde 401 sin sesión; la interfaz muestra la pantalla de acceso y cierra sesión desde la cabecera. `python -m trama set-password` genera el hash; `check` avisa si se escucha fuera de loopback sin contraseña.
+- **Adaptador Google Drive** con alcance mínimo `drive.file`, OAuth con PKCE, carpeta privada «TRAMA», subida reanudable por trozos (sesión y offset persistidos en el trabajo; ante un 5xx consulta a Drive dónde se quedó y continúa) y **verificación md5** antes de registrar la ubicación remota; si no coincide, se borra el remoto y el trabajo falla. Descarga de un original que solo está en Drive en streaming con rangos a través de TRAMA (sin enlaces de Drive). Acciones: «Copiar a Drive» en la ficha, «Copiar la selección a Drive», «Comprobar en Drive», conectar/desconectar en «Copias y Drive».
+- **Respaldos**: snapshot consistente (API de copia de SQLite + derivados + manifiesto con SHA-256), retención configurable, verificación, subida opcional a Drive, comandos `backup` / `verify-backup` / `restore` y creación desde la interfaz. Restauración ensayada en test: se borra estado vivo, se restaura y vuelven etiquetas, favoritos, selecciones y previews; lo anterior se conserva como `*.pre-restore-<fecha>`; un snapshot corrupto se rechaza antes de tocar nada.
+- **Disponibilidad explícita**: `available` (copia local aquí) frente a `remote_available` (copia verificada en Drive). La ficha distingue «fuente offline» de «solo en Drive».
+
+## Qué NO se ha hecho (por diseño o por falta de credenciales)
+- **Drive no está conectado de verdad.** No existe un cliente OAuth (client_secret.json) en este equipo; el adaptador está probado únicamente contra un servidor simulado (`tests/test_e3.py::FakeDrive`) que implementa token, about, carpeta, subida reanudable con una interrupción a mitad, metadatos y descarga con rangos. La interfaz informa «No configurado» con las instrucciones. Ninguna medida de subida real.
+- **No desplegado, sin dominio ni DNS** (AGENTS.md). Plan completo en `docs/DESPLIEGUE.md`.
+- Catalogar carpetas ya existentes en Drive queda fuera (necesitaría `drive.readonly`).
+
+## Comandos ejecutados
+```bat
+backend\.venv\Scripts\python -m trama migrate          (aplica 0003_drive_backups.sql)
+backend\.venv\Scripts\python -m trama check            (muestra modo de acceso, Drive y respaldos)
+backend\.venv\Scripts\python -m pytest                 (desde backend\)
+cd frontend && npm run build
+scripts\serve.cmd
+```
+Resultado de `pytest`: 20 pruebas, 20 pasan (24,3 s): las 14 de E1/E2 más 6 de E3 (toda la API bloqueada sin sesión incluidas previews y originales, cookie manipulada rechazada, token portador, bloqueo tras 5 fallos, modo contraseña mal configurado avisado, respaldo → destrucción → restauración → verificación → corrupción detectada → retención, Drive: OAuth con state falso rechazado, subida por trozos con interrupción simulada y reanudación, bytes y md5 exactos, original servido en streaming desde Drive con rango 206, snapshot subido a Drive, desconexión, y Drive no configurado explícito).
+
+## Medidas en este equipo
+| Operación | Medido |
+|---|---|
+| Snapshot del catálogo real (8482 fichas: catálogo 19 MB + 176 derivados, 89 MB) desde la interfaz | **1,0 s**; `verify` correcto. El test crea, destruye y restaura un catálogo de 4 fichas en < 1 s. |
+| API sin sesión sobre el servidor real | `/api/assets`, `/api/assets/{id}/thumb` → 401; `/` (interfaz) → 200; contraseña incorrecta → 401; correcta → cookie de sesión y 8482 fichas. |
+| Coste del hash de contraseña | 310 000 iteraciones PBKDF2, ~0,2 s por intento (freno adicional a fuerza bruta). |
+
+## Verificación visual
+- `docs/capturas/09-acceso.png`: pantalla de acceso.
+- `docs/capturas/10-copias-drive.png`: vista «Copias y Drive» con Drive no configurado y snapshots.
+
+## Verificación con Google Drive real (2026-09-21)
+
+Conectado con un cliente OAuth propio (tipo «App de escritorio», modo Prueba) a la cuenta real del propietario:
+
+| Comprobación | Resultado real |
+|---|---|
+| OAuth con cuenta real | Conectado como `gutierrezbj@gmail.com`, carpeta privada «TRAMA» creada, alcance `drive.file`. |
+| Subida real del humo (`Colorized 04.mov`) | **81.483.668 bytes en 8,0 s (≈9,7 MB/s)**, md5 `37fa8cb0b48f…` verificado contra Google. |
+| Comprobar en Drive | Devuelve nombre, tamaño y md5 correctos del archivo en la cuenta. |
+| Descarga desde Drive | Archivo completo (81 MB, md5 idéntico) y rango parcial (206). |
+
+Corregido en pruebas reales: `drive-verify` elegía cualquier ubicación de Drive; ahora prioriza la disponible sobre una offline antigua (`test_drive_verify_prefers_available_location`). El cliente OAuth y el token viven solo en `%LOCALAPPDATA%\TRAMA\drive\`, fuera del repositorio. Modo Prueba: Google caduca el permiso a los ~7 días; TRAMA avisa y reconectar es un clic. Se publica la app (fin de la caducidad) cuando exista `trama.jrgblanco.com` con página y política, en el encargo de despliegue.
