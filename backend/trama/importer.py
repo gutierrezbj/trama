@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from .config import MEDIA_EXTENSIONS, Settings, media_kind_for, source_id_for
+from .config import LUT_EXT, MEDIA_EXTENSIONS, Settings, media_kind_for, source_id_for
 from .db import Database, new_id, normalize_text, now_iso
 
 CATEGORY_RULES: list[tuple[re.Pattern, str]] = [
@@ -172,6 +172,9 @@ def run_import(
             elif inside and loc["rel_path"] in seen_rel and loc["status"] != "available":
                 conn.execute("UPDATE locations SET status = 'available', last_seen_at = ? WHERE id = ?", (now, loc["id"]))
     on_progress(dict(stats))
+    from .packs import link_provider_previews
+
+    link_provider_previews(db)
     return stats
 
 
@@ -233,12 +236,13 @@ def _ensure_asset_and_jobs(db: Database, version_id: str, rel_path: str, file_na
         pending_job = conn.execute(
             "SELECT id FROM jobs WHERE version_id = ? AND kind = 'analyze' AND status IN ('queued', 'running')", (version_id,)
         ).fetchone()
-        if version["analysis_status"] in ("pending", "failed") and pending_job is None and media_kind != "other":
+        needs_analysis = media_kind != "other" or ext in LUT_EXT
+        if version["analysis_status"] in ("pending", "failed") and pending_job is None and needs_analysis:
             conn.execute(
                 "INSERT INTO jobs(id, kind, version_id, status, payload, created_at) VALUES (?, 'analyze', ?, 'queued', ?, ?)",
                 (new_id("job"), version_id, json.dumps({"reason": "import"}), now),
             )
-        if media_kind == "other" and version["analysis_status"] == "pending":
+        if not needs_analysis and version["analysis_status"] == "pending":
             conn.execute(
                 "UPDATE asset_versions SET analysis_status = 'done', analysis = ?, analyzed_at = ? WHERE id = ?",
                 (json.dumps({"media_kind": "other", "container": ext.lstrip("."), "preview_support": "none"}), now, version_id),

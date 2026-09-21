@@ -1,8 +1,8 @@
 // Cliente de la API de TRAMA. Todos los archivos se resuelven por ID en el backend.
 
 export type MediaKind = "video" | "audio" | "image" | "other";
-export type PreviewKind = "video" | "video_alpha" | "audio" | "image" | "none";
-export type PreviewStatus = "pending" | "ready" | "failed" | "unsupported";
+export type PreviewKind = "video" | "video_alpha" | "audio" | "image" | "lut_demo" | "none";
+export type PreviewStatus = "pending" | "ready" | "failed" | "unsupported" | "archived";
 export type Bg = "dark" | "light" | "checker";
 
 export interface Summary {
@@ -31,9 +31,60 @@ export interface Location {
   source_label: string;
   rel_path: string;
   file_name: string;
-  status: "available" | "offline";
+  status: "available" | "offline" | "archived";
   size: number;
   last_seen_at: string;
+  kind: "local" | "pack";
+  pack_id?: string | null;
+  pack_label?: string | null;
+  inner_path?: string | null;
+  entry_status?: string | null;
+  entry_error?: string | null;
+  unsafe_reason?: string | null;
+}
+
+export interface Pack {
+  id: string;
+  source_id: string;
+  rel_path: string;
+  label: string;
+  size: number;
+  status: "pending" | "indexing" | "indexed" | "failed" | "offline";
+  entries_total: number;
+  entries_media: number;
+  entries_unsafe: number;
+  bytes_total: number;
+  error: string | null;
+  indexed_at: string | null;
+  extracted: number;
+  extracted_bytes: number;
+  failed: number;
+  active_job: { id: string; kind: string; status: string; progress: number; message: string | null } | null;
+  zip_present: boolean;
+  folders?: PackFolder[];
+  unsafe_entries?: { inner_path: string; unsafe_reason: string }[];
+  failed_entries?: { id: string; inner_path: string; error: string }[];
+}
+
+export interface PackFolder {
+  path: string;
+  depth: number;
+  entries: number;
+  media: number;
+  extracted: number;
+  bytes: number;
+  extracted_bytes: number;
+  unsafe: number;
+}
+
+export interface Storage {
+  data_dir: string;
+  cache_bytes: number;
+  cache_max_bytes: number;
+  derivatives_bytes: number;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
+  min_free_bytes: number;
 }
 
 export interface Asset {
@@ -51,6 +102,7 @@ export interface Asset {
   version: {
     id: string;
     sha256: string;
+    identity_kind: "sha256" | "provisional";
     size: number;
     ext: string;
     media_kind: MediaKind;
@@ -60,6 +112,13 @@ export interface Asset {
   };
   summary: Summary;
   available: boolean;
+  archived: boolean;
+  extractable: boolean;
+  duplicate_of: string | null;
+  required_app: string | null;
+  provider_preview: { asset_id: string; title: string; thumb_url: string | null } | null;
+  lut: { title: string | null; size_3d: number | null; size_1d: number | null } | null;
+  lut_demo_url: string | null;
   locations: Location[];
   derivatives: Record<string, { status: string; error: string | null; width: number | null; height: number | null }>;
   preview: { kind: PreviewKind; status: PreviewStatus; backgrounds: Bg[] };
@@ -139,7 +198,8 @@ export interface Browse {
   source_id: string;
   path: string;
   parent: string | null;
-  dirs: { name: string; path: string; media_files: number }[];
+  dirs: { name: string; path: string; media_files: number; zip_files: number }[];
+  zips: { name: string; path: string; size: number; pack_id: string | null; pack_status: string | null; entries_media: number | null }[];
   media_files: number;
 }
 
@@ -157,6 +217,8 @@ export interface Stats {
   categories: Record<string, number>;
   analysis_pending: number;
   analysis_failed: number;
+  archived: number;
+  packs: number;
 }
 
 export interface AssetFilters {
@@ -166,11 +228,14 @@ export interface AssetFilters {
   orientation?: string;
   max_duration?: number;
   min_duration?: number;
-  availability?: "available" | "offline";
+  availability?: "available" | "offline" | "archived";
   favorite?: boolean;
   analysis?: string;
   collection_id?: string;
   selection_id?: string;
+  pack_id?: string;
+  media_kind?: string;
+  duplicates?: boolean;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -222,6 +287,20 @@ export const api = {
   patchAsset: (id: string, body: Partial<Pick<Asset, "title" | "description" | "tags" | "category" | "favorite">>) =>
     request<Asset>(`/api/assets/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   reanalyze: (id: string) => request<Asset>(`/api/assets/${id}/reanalyze`, { method: "POST" }),
+  extractAsset: (id: string) => request<{ job_id: string | null; message?: string }>(`/api/assets/${id}/extract`, { method: "POST" }),
+  releaseAsset: (id: string) => request<{ released: number }>(`/api/assets/${id}/release`, { method: "POST" }),
+
+  packs: () => request<Pack[]>("/api/packs"),
+  pack: (id: string) => request<Pack>(`/api/packs/${id}`),
+  indexPacks: (sourceId: string, path: string) =>
+    request<{ packs: { pack_id: string; label: string; job_id: string }[] }>("/api/packs/index", { method: "POST", body: JSON.stringify({ source_id: sourceId, path }) }),
+  reindexPack: (id: string) => request<{ job_id: string }>(`/api/packs/${id}/reindex`, { method: "POST" }),
+  patchPack: (id: string, label: string) => request<Pack>(`/api/packs/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  extractPack: (id: string, prefix = "", entryIds: string[] = []) =>
+    request<{ job_id: string | null; entries: number; bytes: number; message?: string }>(`/api/packs/${id}/extract`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
+  releasePack: (id: string, prefix = "", entryIds: string[] = []) =>
+    request<{ released: number }>(`/api/packs/${id}/release`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
+  storage: () => request<Storage>("/api/storage"),
 
   collections: () => request<Named[]>("/api/collections"),
   collection: (id: string) => request<Named & { assets: Asset[] }>(`/api/collections/${id}`),
@@ -294,6 +373,20 @@ export function formatClock(seconds: number | null | undefined): string {
   const s = Math.floor(seconds - m * 60);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
+
+export const EXT_LABELS: Record<string, string> = {
+  ".mogrt": "Plantilla MOGRT",
+  ".aep": "Proyecto After Effects",
+  ".prproj": "Proyecto Premiere",
+  ".drp": "Proyecto Resolve",
+  ".drfx": "Plantilla Fusion",
+  ".look": "Look",
+  ".cube": "LUT 3D",
+  ".3dl": "LUT 3D",
+  ".psd": "Photoshop",
+  ".exr": "Imagen EXR",
+  ".pdf": "Documento PDF",
+};
 
 export function formatBytes(bytes: number | null | undefined): string {
   if (!bytes && bytes !== 0) return "—";

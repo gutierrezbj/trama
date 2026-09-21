@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Asset, type Config, type Named, type Stats, CATEGORY_LABELS } from "./api";
+import { api, type Asset, type Config, type Named, type Pack, type Stats, CATEGORY_LABELS } from "./api";
 import { CollectionDetail, CollectionsList } from "./Collections";
 import { Explore, type ExploreState, initialExplore } from "./Explore";
 import { useInterval } from "./hooks";
 import { IconMenu, IconSearch } from "./icons";
-import { ImportView } from "./Import";
+import { ImportView, PackDetail } from "./Import";
 import { Inspector } from "./Inspector";
 import { SelectionDetail, SelectionsList } from "./Selections";
 import { Sidebar, type View } from "./Sidebar";
@@ -38,6 +38,7 @@ export default function App() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [selections, setSelections] = useState<Named[]>([]);
   const [collections, setCollections] = useState<Named[]>([]);
+  const [packs, setPacks] = useState<Pack[]>([]);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -63,6 +64,7 @@ export default function App() {
     api.stats().then(setStats).catch(() => undefined);
     api.selections().then(setSelections).catch(() => undefined);
     api.collections().then(setCollections).catch(() => undefined);
+    api.packs().then(setPacks).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -100,8 +102,9 @@ export default function App() {
 
   const categories = config?.categories ?? Object.keys(CATEGORY_LABELS);
   const exploreProps = {
-    query, categories, selectedId, onOpen: openAsset, onToggleFavorite: toggleFavorite, busy, refreshKey,
+    query, categories, packs, selectedId, onOpen: openAsset, onToggleFavorite: toggleFavorite, busy, refreshKey,
   };
+  const openAssetById = (id: string) => setSelectedId(id);
 
   let body: JSX.Element;
   switch (view.name) {
@@ -119,7 +122,9 @@ export default function App() {
       body = <Explore title="Favoritos" subtitle="Lo que has marcado con el corazón." state={explore} onState={setExplore} fixed={{ favorite: true }} {...exploreProps} emptyHint="Todavía no hay favoritos." />;
       break;
     case "import":
-      body = <ImportView config={config} busy={busy} onImported={() => { pollJobs(); bump(); }} />;
+      body = view.id
+        ? <PackDetail id={view.id} onBack={() => setView({ name: "import" })} onExplore={(packId) => { setExplore({ ...initialExplore, packId }); setView({ name: "explore" }); }} />
+        : <ImportView config={config} busy={busy} onImported={() => { pollJobs(); bump(); }} onOpenPack={(id) => setView({ name: "import", id })} />;
       break;
     default:
       body = (
@@ -148,6 +153,9 @@ export default function App() {
             <input type="search" placeholder="¿Qué necesitas para tu próxima pieza?" value={query} onChange={(e) => { setQuery(e.target.value); setExplore((s) => ({ ...s, offset: 0 })); }} />
           </label>
           {busy && <div className="status-pill" role="status"><span className="dot" />{busyLabel}</div>}
+          {stats && stats.archived > 0 && !busy && (
+            <button type="button" className="status-pill" title="Recursos catalogados dentro de packs, pendientes de extraer" onClick={() => { setExplore({ ...initialExplore, availability: "archived" }); setView({ name: "explore" }); }}>{stats.archived} sin extraer</button>
+          )}
           {stats && stats.analysis_failed > 0 && !busy && (
             <button type="button" className="status-pill" onClick={() => setView({ name: "import" })}>{stats.analysis_failed} con error de análisis</button>
           )}
@@ -166,6 +174,7 @@ export default function App() {
             onChanged={() => bump()}
             onSelectionsChanged={refreshMeta}
             onOpenSelection={(id) => setView({ name: "selections", id })}
+            onOpenAsset={openAssetById}
           />
         </>
       )}

@@ -12,11 +12,29 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .config import CATEGORIES, REPO_ROOT, MEDIA_EXTENSIONS, Settings, source_id_for
+from .config import ARCHIVE_EXT, CATEGORIES, LUT_EXT, REPO_ROOT, MEDIA_EXTENSIONS, REQUIRED_APP, Settings, source_id_for
 from .db import Database, loads, new_id, normalize_text, now_iso
 from .importer import build_search_text, ensure_source, resolve_subpath
 from .media import MediaError, resolve_tools
-from .worker import Worker, enqueue_import, enqueue_reanalyze, original_path_for_version
+from .packs import (
+    DiskLimitError,
+    PackError,
+    cache_bytes_used,
+    extract_entry,
+    folder_tree,
+    register_pack,
+    release_entries,
+    write_inventory_csv,
+)
+from .worker import (
+    Worker,
+    archived_pack_locations,
+    enqueue_extract,
+    enqueue_import,
+    enqueue_index_pack,
+    enqueue_reanalyze,
+    original_path_for_version,
+)
 
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
@@ -60,7 +78,10 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
     version_id = row["version_id"]
     analysis = loads(row.get("analysis"), {})
     locations = [dict(r) for r in db.query(
-        "SELECT l.id, l.source_id, s.label AS source_label, l.rel_path, l.file_name, l.status, l.size, l.last_seen_at FROM locations l JOIN sources s ON s.id = l.source_id WHERE l.version_id = ? ORDER BY l.last_seen_at DESC",
+        "SELECT l.id, l.source_id, s.label AS source_label, l.rel_path, l.file_name, l.status, l.size, l.last_seen_at, l.kind, "
+        "e.pack_id, p.label AS pack_label, e.inner_path, e.status AS entry_status, e.error AS entry_error, e.unsafe_reason "
+        "FROM locations l JOIN sources s ON s.id = l.source_id LEFT JOIN pack_entries e ON e.id = l.pack_entry_id LEFT JOIN packs p ON p.id = e.pack_id "
+        "WHERE l.version_id = ? ORDER BY l.status = 'available' DESC, l.last_seen_at DESC",
         (version_id,),
     )]
     derivatives = {}
@@ -69,6 +90,8 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
     media_kind = row["media_kind"]
     summary = _summary(analysis, media_kind)
     alpha = bool(summary["alpha_format"]) and summary["alpha_used"] is not False and media_kind == "video"
+    available = any(l["status"] == "available" for l in locations)
+    archived = any(l["status"] == "archived" for l in locations)
 
     if media_kind == "video":
         kinds = ["proxy_dark", "proxy_light", "proxy_checker"] if alpha else ["proxy"]
@@ -77,20 +100,35 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         kinds, preview_kind = ["audio_proxy"], "audio"
     elif media_kind == "image":
         kinds, preview_kind = [], "image"
+    elif analysis.get("preview_support") == "lut_demo" or row["ext"] in LUT_EXT:
+        kinds, preview_kind = ["lut_demo"], "lut_demo"
     else:
         kinds, preview_kind = [], "none"
 
     if row["analysis_status"] == "failed":
         preview_status = "failed"
     elif row["analysis_status"] != "done":
-        preview_status = "pending"
+        preview_status = "archived" if (archived and not available) else "pending"
     elif preview_kind == "none":
         preview_status = "unsupported"
     elif preview_kind == "image":
-        preview_status = "ready"
+        preview_status = "ready" if available else "archived"
     else:
         statuses = [derivatives.get(k, {}).get("status", "pending") for k in kinds]
         preview_status = "ready" if statuses and all(s == "ready" for s in statuses) else ("failed" if "failed" in statuses else "pending")
+
+    provider_preview = None
+    if row.get("provider_preview_asset_id"):
+        pp = db.one(
+            "SELECT a.id, a.title, d.status FROM assets a JOIN derivatives d ON d.version_id = a.version_id AND d.kind = 'thumb' WHERE a.id = ?",
+            (row["provider_preview_asset_id"],),
+        )
+        if pp:
+            provider_preview = {"asset_id": pp["id"], "title": pp["title"], "thumb_url": f"/api/assets/{pp['id']}/thumb" if pp["status"] == "ready" else None}
+        else:
+            other = db.one("SELECT id, title FROM assets WHERE id = ?", (row["provider_preview_asset_id"],))
+            if other:
+                provider_preview = {"asset_id": other["id"], "title": other["title"], "thumb_url": None}
 
     asset_id = row["id"]
     data = {
@@ -108,6 +146,7 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         "version": {
             "id": version_id,
             "sha256": row["sha256"],
+            "identity_kind": row.get("identity_kind") or "sha256",
             "size": row["size"],
             "ext": row["ext"],
             "media_kind": media_kind,
@@ -116,11 +155,18 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
             "analyzed_at": row["analyzed_at"],
         },
         "summary": summary,
-        "available": any(l["status"] == "available" for l in locations),
+        "available": available,
+        "archived": archived and not available,
+        "extractable": archived and any(l["kind"] == "pack" and l["status"] == "archived" for l in locations),
+        "duplicate_of": row.get("duplicate_of"),
+        "required_app": REQUIRED_APP.get(row["ext"]) if media_kind == "other" else None,
+        "provider_preview": provider_preview,
+        "lut": analysis.get("lut"),
         "locations": locations,
         "derivatives": derivatives,
         "preview": {"kind": preview_kind, "status": preview_status, "backgrounds": ["dark", "light", "checker"] if alpha else []},
         "thumb_url": f"/api/assets/{asset_id}/thumb" if derivatives.get("thumb", {}).get("status") == "ready" else None,
+        "lut_demo_url": f"/api/assets/{asset_id}/lut-demo" if derivatives.get("lut_demo", {}).get("status") == "ready" else None,
         "waveform_url": f"/api/assets/{asset_id}/waveform" if derivatives.get("waveform", {}).get("status") == "ready" else None,
         "in_selections": [r["selection_id"] for r in db.query("SELECT selection_id FROM selection_items WHERE asset_id = ?", (asset_id,))],
         "in_collections": [r["collection_id"] for r in db.query("SELECT collection_id FROM collection_assets WHERE asset_id = ?", (asset_id,))],
@@ -134,7 +180,7 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
 
 
 ASSET_SELECT = (
-    "SELECT a.*, v.sha256, v.size, v.ext, v.media_kind, v.analysis_status, v.analysis_error, v.analysis, v.analyzed_at "
+    "SELECT a.*, v.sha256, v.identity_kind, v.size, v.ext, v.media_kind, v.analysis_status, v.analysis_error, v.analysis, v.analyzed_at "
     "FROM assets a JOIN asset_versions v ON v.id = a.version_id"
 )
 
@@ -159,6 +205,20 @@ class AssetPatch(BaseModel):
 class ImportCreate(BaseModel):
     source_id: str
     path: str = ""
+
+
+class PackIndexCreate(BaseModel):
+    source_id: str
+    path: str = ""   # un archivo .zip o una carpeta (todos sus .zip directos)
+
+
+class PackPatch(BaseModel):
+    label: str | None = None
+
+
+class ExtractBody(BaseModel):
+    prefix: str = ""
+    entry_ids: list[str] = Field(default_factory=list)
 
 
 class NamedCreate(BaseModel):
@@ -253,27 +313,38 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             raise HTTPException(404, "Carpeta no encontrada")
         rel = folder.resolve().relative_to(root.resolve()).as_posix()
         rel = "" if rel == "." else rel
-        dirs, media_here = [], 0
+        dirs, zips, media_here = [], [], 0
         try:
             with os.scandir(folder) as it:
                 entries = sorted(it, key=lambda e: e.name.lower())
         except PermissionError:
             raise HTTPException(403, "Sin permiso para leer la carpeta")
+        known_packs = {r["rel_path"]: dict(r) for r in st.db.query("SELECT id, rel_path, status, entries_media FROM packs WHERE source_id = ?", (source_id,))}
         for entry in entries:
             if entry.name.startswith("."):
                 continue
             if entry.is_dir(follow_symlinks=False):
-                count = 0
+                count = zip_count = 0
                 try:
                     with os.scandir(entry.path) as sub:
-                        count = sum(1 for e in sub if e.is_file() and Path(e.name).suffix.lower() in MEDIA_EXTENSIONS)
+                        for e in sub:
+                            if e.is_file():
+                                ext = Path(e.name).suffix.lower()
+                                count += ext in MEDIA_EXTENSIONS
+                                zip_count += ext in ARCHIVE_EXT
                 except OSError:
                     pass
-                dirs.append({"name": entry.name, "path": f"{rel}/{entry.name}" if rel else entry.name, "media_files": count})
-            elif entry.is_file() and Path(entry.name).suffix.lower() in MEDIA_EXTENSIONS:
-                media_here += 1
+                dirs.append({"name": entry.name, "path": f"{rel}/{entry.name}" if rel else entry.name, "media_files": count, "zip_files": zip_count})
+            elif entry.is_file():
+                ext = Path(entry.name).suffix.lower()
+                if ext in MEDIA_EXTENSIONS:
+                    media_here += 1
+                elif ext in ARCHIVE_EXT:
+                    zrel = f"{rel}/{entry.name}" if rel else entry.name
+                    known = known_packs.get(zrel)
+                    zips.append({"name": entry.name, "path": zrel, "size": entry.stat().st_size, "pack_id": known["id"] if known else None, "pack_status": known["status"] if known else None, "entries_media": known["entries_media"] if known else None})
         parent = None if not rel else ("/".join(rel.split("/")[:-1]))
-        return {"source_id": source_id, "path": rel, "parent": parent, "dirs": dirs, "media_files": media_here}
+        return {"source_id": source_id, "path": rel, "parent": parent, "dirs": dirs, "zips": zips, "media_files": media_here}
 
     # ---- importaciones y trabajos ----------------------------------------
     @app.post("/api/imports", status_code=201)
@@ -361,6 +432,171 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             st.worker.retry(i)
         return {"retried": len(ids)}
 
+    # ---- packs (ZIP) -------------------------------------------------------
+    def _pack_out(st: AppState, row: dict) -> dict:
+        row = dict(row)
+        agg = st.db.one(
+            "SELECT COALESCE(SUM(CASE WHEN status = 'extracted' THEN 1 ELSE 0 END), 0) AS extracted, "
+            "COALESCE(SUM(CASE WHEN status = 'extracted' THEN size ELSE 0 END), 0) AS extracted_bytes, "
+            "COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed FROM pack_entries WHERE pack_id = ?",
+            (row["id"],),
+        )
+        row.update({"extracted": agg["extracted"], "extracted_bytes": agg["extracted_bytes"], "failed": agg["failed"]})
+        job = st.db.one(
+            "SELECT id, kind, status, progress, message FROM jobs WHERE kind IN ('index_pack','extract') AND status IN ('queued','running') AND json_extract(payload, '$.pack_id') = ? ORDER BY created_at LIMIT 1",
+            (row["id"],),
+        )
+        row["active_job"] = dict(job) if job else None
+        root = st.settings.source_for_id(row["source_id"])
+        row["zip_present"] = bool(root and (root / Path(*row["rel_path"].split("/"))).is_file())
+        return row
+
+    @app.get("/api/packs")
+    def list_packs(st: AppState = Depends(S)):
+        return [_pack_out(st, r) for r in st.db.query("SELECT * FROM packs ORDER BY label")]
+
+    @app.post("/api/packs/index", status_code=202)
+    def index_packs(body: PackIndexCreate, st: AppState = Depends(S)):
+        root = st.settings.source_for_id(body.source_id)
+        if root is None:
+            raise HTTPException(404, "Fuente desconocida")
+        if not root.is_dir():
+            raise HTTPException(409, f"La raíz no está accesible: {root}")
+        try:
+            target = resolve_subpath(root, body.path)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if target.is_file() and target.suffix.lower() in ARCHIVE_EXT:
+            zips = [target]
+        elif target.is_dir():
+            zips = sorted(p for p in target.iterdir() if p.is_file() and p.suffix.lower() in ARCHIVE_EXT)
+        else:
+            raise HTTPException(404, "No es un ZIP ni una carpeta")
+        if not zips:
+            raise HTTPException(404, "No hay archivos ZIP en esa carpeta")
+        ensure_source(st.db, root)
+        out = []
+        for z in zips:
+            rel = z.resolve().relative_to(root.resolve()).as_posix()
+            pack = register_pack(st.db, body.source_id, rel, z)
+            job_id = enqueue_index_pack(st.db, pack["id"])
+            out.append({"pack_id": pack["id"], "label": pack["label"], "job_id": job_id})
+        st.worker.notify()
+        return {"packs": out}
+
+    @app.get("/api/packs/{pack_id}")
+    def get_pack(pack_id: str, depth: int = Query(3, ge=1, le=6), st: AppState = Depends(S)):
+        row = st.db.one("SELECT * FROM packs WHERE id = ?", (pack_id,))
+        if row is None:
+            raise HTTPException(404, "Pack no encontrado")
+        out = _pack_out(st, dict(row))
+        out["folders"] = folder_tree(st.db, pack_id, depth)
+        out["unsafe_entries"] = [dict(r) for r in st.db.query("SELECT inner_path, unsafe_reason FROM pack_entries WHERE pack_id = ? AND status = 'unsafe' LIMIT 50", (pack_id,))]
+        out["failed_entries"] = [dict(r) for r in st.db.query("SELECT id, inner_path, error FROM pack_entries WHERE pack_id = ? AND status = 'failed' LIMIT 50", (pack_id,))]
+        return out
+
+    @app.patch("/api/packs/{pack_id}")
+    def patch_pack(pack_id: str, body: PackPatch, st: AppState = Depends(S)):
+        row = st.db.one("SELECT * FROM packs WHERE id = ?", (pack_id,))
+        if row is None:
+            raise HTTPException(404, "Pack no encontrado")
+        if body.label is not None and body.label.strip():
+            with st.db.tx() as conn:
+                conn.execute("UPDATE packs SET label = ? WHERE id = ?", (body.label.strip(), pack_id))
+        return _pack_out(st, dict(st.db.one("SELECT * FROM packs WHERE id = ?", (pack_id,))))
+
+    @app.post("/api/packs/{pack_id}/reindex", status_code=202)
+    def reindex_pack(pack_id: str, st: AppState = Depends(S)):
+        row = st.db.one("SELECT * FROM packs WHERE id = ?", (pack_id,))
+        if row is None:
+            raise HTTPException(404, "Pack no encontrado")
+        zip_path = st.settings.source_for_id(row["source_id"])
+        if zip_path:
+            zip_path = zip_path / Path(*row["rel_path"].split("/"))
+            if zip_path.is_file():
+                register_pack(st.db, row["source_id"], row["rel_path"], zip_path)
+        job_id = enqueue_index_pack(st.db, pack_id)
+        st.worker.notify()
+        return {"job_id": job_id}
+
+    @app.post("/api/packs/{pack_id}/extract", status_code=202)
+    def extract_pack(pack_id: str, body: ExtractBody, st: AppState = Depends(S)):
+        row = st.db.one("SELECT * FROM packs WHERE id = ?", (pack_id,))
+        if row is None:
+            raise HTTPException(404, "Pack no encontrado")
+        if row["status"] != "indexed":
+            raise HTTPException(409, "El pack no está indexado")
+        from .packs import select_entries
+
+        pending = select_entries(st.db, pack_id, body.prefix, body.entry_ids)
+        total = sum(e["size"] for e in pending)
+        if not pending:
+            return {"job_id": None, "entries": 0, "bytes": 0, "message": "Nada pendiente de extraer en esa selección"}
+        try:
+            from .packs import check_disk_limits
+
+            check_disk_limits(st.db, st.settings, total)
+        except DiskLimitError as exc:
+            raise HTTPException(507, str(exc))
+        job_id = enqueue_extract(st.db, pack_id, body.prefix, body.entry_ids)
+        st.worker.notify()
+        return {"job_id": job_id, "entries": len(pending), "bytes": total}
+
+    @app.post("/api/packs/{pack_id}/release")
+    def release_pack(pack_id: str, body: ExtractBody, st: AppState = Depends(S)):
+        if st.db.one("SELECT 1 FROM packs WHERE id = ?", (pack_id,)) is None:
+            raise HTTPException(404, "Pack no encontrado")
+        n = release_entries(st.db, st.settings, pack_id, body.prefix, body.entry_ids)
+        return {"released": n}
+
+    @app.get("/api/packs/{pack_id}/inventory.csv")
+    def pack_inventory(pack_id: str, st: AppState = Depends(S)):
+        try:
+            path = write_inventory_csv(st.db, st.settings, pack_id)
+        except PackError as exc:
+            raise HTTPException(404, str(exc))
+        label = st.db.one("SELECT label FROM packs WHERE id = ?", (pack_id,))["label"]
+        return FileResponse(path, media_type="text/csv", filename=f"inventario-{label}.csv")
+
+    @app.get("/api/storage")
+    def storage(st: AppState = Depends(S)):
+        import shutil as _sh
+
+        usage = _sh.disk_usage(st.settings.data_dir)
+        deriv = 0
+        for p in st.settings.derivatives_dir.rglob("*"):
+            if p.is_file():
+                deriv += p.stat().st_size
+        return {
+            "data_dir": str(st.settings.data_dir),
+            "cache_bytes": cache_bytes_used(st.db),
+            "cache_max_bytes": st.settings.cache_max_bytes,
+            "derivatives_bytes": deriv,
+            "disk_free_bytes": usage.free,
+            "disk_total_bytes": usage.total,
+            "min_free_bytes": st.settings.min_free_bytes,
+        }
+
+    @app.get("/api/duplicates")
+    def duplicates(st: AppState = Depends(S)):
+        """Grupos de ubicaciones que comparten bytes: confirmados (SHA-256) y candidatos (crc32+tamaño)."""
+        rows = st.db.query(
+            "SELECT v.id AS version_id, v.identity_kind, v.size, COUNT(l.id) AS n, "
+            "(SELECT a.id FROM assets a WHERE a.version_id = v.id ORDER BY a.created_at LIMIT 1) AS asset_id, "
+            "(SELECT a.title FROM assets a WHERE a.version_id = v.id ORDER BY a.created_at LIMIT 1) AS title "
+            "FROM asset_versions v JOIN locations l ON l.version_id = v.id GROUP BY v.id HAVING COUNT(l.id) > 1 ORDER BY v.size DESC"
+        )
+        out = []
+        for r in rows:
+            locs = st.db.query(
+                "SELECT l.rel_path, l.status, l.kind, s.label AS source_label, p.label AS pack_label FROM locations l JOIN sources s ON s.id = l.source_id "
+                "LEFT JOIN pack_entries e ON e.id = l.pack_entry_id LEFT JOIN packs p ON p.id = e.pack_id WHERE l.version_id = ?",
+                (r["version_id"],),
+            )
+            out.append({**dict(r), "confirmed": r["identity_kind"] == "sha256", "locations": [dict(l) for l in locs]})
+        linked = [dict(x) for x in st.db.query("SELECT id, title, duplicate_of FROM assets WHERE duplicate_of IS NOT NULL")]
+        return {"groups": out, "linked_assets": linked}
+
     # ---- recursos ----------------------------------------------------------
     @app.get("/api/assets")
     def list_assets(
@@ -375,6 +611,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         analysis: str | None = None,
         collection_id: str | None = None,
         selection_id: str | None = None,
+        pack_id: str | None = None,
+        media_kind: str | None = None,
+        duplicates: bool | None = None,
         sort: str = "recent",
         limit: int = Query(60, ge=1, le=500),
         offset: int = Query(0, ge=0),
@@ -403,8 +642,19 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             params.append(min_duration)
         if availability == "available":
             where.append("EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status = 'available')")
+        elif availability == "archived":
+            where.append("NOT EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status = 'available') AND EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status = 'archived')")
         elif availability == "offline":
-            where.append("NOT EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status = 'available')")
+            where.append("NOT EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status IN ('available','archived'))")
+        if pack_id:
+            where.append("EXISTS (SELECT 1 FROM pack_entries e WHERE e.version_id = v.id AND e.pack_id = ?)")
+            params.append(pack_id)
+        if media_kind:
+            kinds = [k for k in media_kind.split(",") if k]
+            where.append("v.media_kind IN (" + ",".join("?" for _ in kinds) + ")")
+            params += kinds
+        if duplicates:
+            where.append("(a.duplicate_of IS NOT NULL OR (SELECT COUNT(*) FROM locations l WHERE l.version_id = v.id) > 1)")
         if favorite is not None:
             where.append("a.favorite = ?")
             params.append(1 if favorite else 0)
@@ -435,9 +685,11 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         cats = {r["category"]: r["n"] for r in st.db.query("SELECT category, COUNT(*) AS n FROM assets GROUP BY category")}
         fav = st.db.one("SELECT COUNT(*) AS n FROM assets WHERE favorite = 1")["n"]
         total = st.db.one("SELECT COUNT(*) AS n FROM assets")["n"]
-        pending = st.db.one("SELECT COUNT(*) AS n FROM asset_versions WHERE analysis_status IN ('pending','running')")["n"]
+        pending = st.db.one("SELECT COUNT(*) AS n FROM asset_versions v WHERE v.analysis_status IN ('pending','running') AND EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status = 'available')")["n"]
         failed = st.db.one("SELECT COUNT(*) AS n FROM asset_versions WHERE analysis_status = 'failed'")["n"]
-        return {"total": total, "favorites": fav, "categories": cats, "analysis_pending": pending, "analysis_failed": failed}
+        archived = st.db.one("SELECT COUNT(*) AS n FROM assets a JOIN asset_versions v ON v.id = a.version_id WHERE NOT EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status = 'available') AND EXISTS (SELECT 1 FROM locations l WHERE l.version_id = v.id AND l.status = 'archived')")["n"]
+        packs = st.db.one("SELECT COUNT(*) AS n FROM packs")["n"]
+        return {"total": total, "favorites": fav, "categories": cats, "analysis_pending": pending, "analysis_failed": failed, "archived": archived, "packs": packs}
 
     @app.get("/api/tags")
     def tags(st: AppState = Depends(S)):
@@ -489,9 +741,41 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     @app.post("/api/assets/{asset_id}/reanalyze")
     def reanalyze(asset_id: str, st: AppState = Depends(S)):
         row = get_asset_row(st.db, asset_id)
+        if original_path_for_version(st.db, st.settings, row["version_id"]) is None:
+            raise HTTPException(409, "El original no está disponible; extrae o reconecta la fuente antes de reanalizar")
         enqueue_reanalyze(st.db, row["version_id"])
         st.worker.notify()
         return serialize_asset(st, get_asset_row(st.db, asset_id), detail=True)
+
+    @app.post("/api/assets/{asset_id}/extract", status_code=202)
+    def extract_asset(asset_id: str, st: AppState = Depends(S)):
+        """Extrae del pack (en segundo plano) la primera copia archivada de este recurso."""
+        row = get_asset_row(st.db, asset_id)
+        if original_path_for_version(st.db, st.settings, row["version_id"]) is not None:
+            return {"job_id": None, "message": "Ya hay una copia disponible"}
+        locs = archived_pack_locations(st.db, row["version_id"])
+        if not locs:
+            raise HTTPException(404, "No hay copia en ningún pack registrado")
+        loc = locs[0]
+        try:
+            from .packs import check_disk_limits
+
+            check_disk_limits(st.db, st.settings, loc["size"])
+        except DiskLimitError as exc:
+            raise HTTPException(507, str(exc))
+        job_id = enqueue_extract(st.db, loc["pack_id"], "", [loc["entry_id"]])
+        st.worker.notify()
+        return {"job_id": job_id}
+
+    @app.post("/api/assets/{asset_id}/release")
+    def release_asset(asset_id: str, st: AppState = Depends(S)):
+        """Libera las copias extraídas de este recurso (los derivados y la ficha se conservan)."""
+        row = get_asset_row(st.db, asset_id)
+        entries = st.db.query("SELECT id, pack_id FROM pack_entries WHERE version_id = ? AND status = 'extracted'", (row["version_id"],))
+        n = 0
+        for e in entries:
+            n += release_entries(st.db, st.settings, e["pack_id"], "", [e["id"]])
+        return {"released": n}
 
     # ---- archivos: siempre resueltos por ID, nunca por ruta del cliente ----
     def _derivative_path(st: AppState, version_id: str, kind: str) -> Path:
@@ -508,6 +792,12 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     def asset_thumb(asset_id: str, st: AppState = Depends(S)):
         row = get_asset_row(st.db, asset_id)
         path = _derivative_path(st, row["version_id"], "thumb")
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+    @app.get("/api/assets/{asset_id}/lut-demo")
+    def asset_lut_demo(asset_id: str, st: AppState = Depends(S)):
+        row = get_asset_row(st.db, asset_id)
+        path = _derivative_path(st, row["version_id"], "lut_demo")
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
     @app.get("/api/assets/{asset_id}/waveform")
@@ -541,7 +831,23 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         row = get_asset_row(st.db, asset_id)
         path = original_path_for_version(st.db, st.settings, row["version_id"])
         if path is None:
-            raise HTTPException(404, "El original no puede obtenerse: la fuente está offline")
+            # Copia solo dentro de un pack: extracción bajo demanda (síncrona, una entrada) y se sirve.
+            locs = archived_pack_locations(st.db, row["version_id"])
+            if not locs:
+                raise HTTPException(404, "El original no puede obtenerse: la fuente está offline")
+            loc = locs[0]
+            pack = dict(st.db.one("SELECT * FROM packs WHERE id = ?", (loc["pack_id"],)))
+            entry = dict(st.db.one("SELECT * FROM pack_entries WHERE id = ?", (loc["entry_id"],)))
+            try:
+                extract_entry(st.db, st.settings, pack, entry, lambda: False)
+            except DiskLimitError as exc:
+                raise HTTPException(507, str(exc))
+            except PackError as exc:
+                raise HTTPException(409, f"No se pudo extraer del pack: {exc}")
+            st.worker.notify()
+            path = original_path_for_version(st.db, st.settings, row["version_id"])
+            if path is None:
+                raise HTTPException(500, "La extracción terminó pero el archivo no aparece en la caché")
         filename = st.db.one("SELECT file_name FROM locations WHERE version_id = ? ORDER BY last_seen_at DESC LIMIT 1", (row["version_id"],))["file_name"]
         return FileResponse(path, filename=filename, content_disposition_type="inline" if inline else "attachment")
 
@@ -693,7 +999,8 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             candidate = (FRONTEND_DIST / full_path).resolve()
             if full_path and candidate.is_file() and FRONTEND_DIST.resolve() in candidate.parents:
                 return FileResponse(candidate)
-            return FileResponse(FRONTEND_DIST / "index.html")
+            # index.html nunca se cachea: los bundles llevan hash y cambian con cada build.
+            return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})
     else:
         @app.get("/", include_in_schema=False)
         def no_frontend():
