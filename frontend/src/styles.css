@@ -114,6 +114,12 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 .card-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 4px 0; font-size: 15px; }
 .card-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-title small { color: var(--text-3); font-size: 12px; flex: none; }
+.vgrid { position: relative; width: 100%; }
+.card-skeleton { border-radius: var(--r-l); background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.card-media .placeholder.archived { color: var(--text-2); background: repeating-linear-gradient(135deg, var(--surface) 0 12px, var(--surface-2) 12px 24px); }
+.card-media .placeholder small { color: var(--text-3); font-size: 11px; }
+.badge.demo { top: 10px; left: 10px; bottom: auto; color: var(--accent); }
 .empty { padding: 60px 20px; text-align: center; color: var(--text-2); }
 .empty h2 { color: var(--text); font-weight: 600; font-size: 18px; margin: 0 0 6px; }
 .pager { display: flex; justify-content: center; gap: 10px; padding: 26px 0 0; }
@@ -245,6 +251,17 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 .dir-list button:hover { background: var(--surface-2); }
 .dir-list button svg { width: 18px; height: 18px; color: var(--text-2); }
 .dir-list .n { margin-left: auto; color: var(--text-3); font-size: 12px; }
+.zip-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: var(--r-s); }
+.zip-row:hover { background: var(--surface-2); }
+.zip-row svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
+.zip-row .zip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.zip-row .n { margin-left: auto; color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.storage { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-s); background: var(--bg); border: 1px solid var(--line); }
+.folder-list { display: flex; flex-direction: column; gap: 4px; }
+.folder-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--r-s); background: var(--surface); }
+.folder-row svg { width: 18px; height: 18px; color: var(--text-2); flex: none; }
+.folder-row .folder-name { font-weight: 600; }
+.folder-row .ops { margin-left: auto; display: flex; gap: 6px; }
 .progress { height: 6px; border-radius: 3px; background: var(--bg); overflow: hidden; }
 .progress > div { height: 100%; background: var(--accent); transition: width 300ms; }
 .job-list { display: flex; flex-direction: column; gap: 8px; }

@@ -15,9 +15,10 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from .config import Settings, media_kind_for
+from .config import LUT_EXT, Settings, media_kind_for
 
 RECIPES = {
+    "lut_demo": "lut-demo-v1",
     "thumb": "thumb-v1",
     "proxy": "proxy-v1",
     "proxy_dark": "proxy-bg-v1",
@@ -173,6 +174,8 @@ def probe_file(tools: Tools, path: Path, timeout: int, register=None) -> dict:
     if kind == "image":
         return _probe_image(path)
     if kind == "other":
+        if path.suffix.lower() in LUT_EXT:
+            return _probe_lut(path)
         return {"media_kind": "other", "container": path.suffix.lower().lstrip("."), "preview_support": "none"}
 
     cmd = [tools.ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)]
@@ -239,6 +242,29 @@ def probe_file(tools: Tools, path: Path, timeout: int, register=None) -> dict:
     return result
 
 
+def _probe_lut(path: Path) -> dict:
+    """Lee la cabecera de un LUT .cube/.3dl: título y tamaño de la malla (datos declarados en el archivo)."""
+    info: dict = {"media_kind": "other", "container": path.suffix.lower().lstrip("."), "preview_support": "lut_demo", "lut": {"title": None, "size_3d": None, "size_1d": None}}
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for _ in range(64):
+                line = fh.readline()
+                if not line:
+                    break
+                parts = line.strip().split()
+                if not parts:
+                    continue
+                if parts[0].upper() == "TITLE":
+                    info["lut"]["title"] = line.strip()[5:].strip().strip('"')
+                elif parts[0].upper() == "LUT_3D_SIZE" and len(parts) > 1 and parts[1].isdigit():
+                    info["lut"]["size_3d"] = int(parts[1])
+                elif parts[0].upper() == "LUT_1D_SIZE" and len(parts) > 1 and parts[1].isdigit():
+                    info["lut"]["size_1d"] = int(parts[1])
+    except OSError as exc:
+        raise MediaError(f"No se pudo leer el LUT: {exc}") from exc
+    return info
+
+
 def _probe_image(path: Path) -> dict:
     with Image.open(path) as im:
         im = ImageOps.exif_transpose(im) or im
@@ -272,11 +298,14 @@ def plan_derivatives(analysis: dict) -> list[str]:
         return ["waveform", "audio_proxy"]
     if kind == "image":
         return ["thumb"]
+    if analysis.get("preview_support") == "lut_demo":
+        return ["lut_demo"]
     return []
 
 
 def derivative_filename(kind: str) -> str:
     return {
+        "lut_demo": "lut_demo.jpg",
         "thumb": "thumb.jpg",
         "proxy": "proxy.mp4",
         "proxy_dark": "proxy_dark.mp4",
@@ -289,6 +318,7 @@ def derivative_filename(kind: str) -> str:
 
 def derivative_mime(kind: str) -> str:
     return {
+        "lut_demo": "image/jpeg",
         "thumb": "image/jpeg",
         "proxy": "video/mp4",
         "proxy_dark": "video/mp4",
@@ -404,6 +434,17 @@ def generate_derivative(
                "-frames:v", "1", "-f", "image2", "-c:v", "png", str(tmp)]
         _ffmpeg(cmd, timeout, register, tmp, dest)
         return {"width": w, "height": h}
+
+    if kind == "lut_demo":
+        # Antes/después sobre una imagen de referencia SINTÉTICA (testsrc2). Es una demostración,
+        # no el material del usuario; la interfaz lo rotula así.
+        lut_file = str(source).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        w, h = 480, 270
+        cmd = [tools.ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size={w}x{h}:rate=1",
+               "-filter_complex", f"[0:v]split[a][b];[b]lut3d=file='{lut_file}'[c];[a][c]hstack,format=yuvj420p",
+               "-frames:v", "1", "-q:v", "3", "-f", "image2", "-c:v", "mjpeg", str(tmp)]
+        _ffmpeg(cmd, timeout, register, tmp, dest)
+        return {"width": w * 2, "height": h}
 
     if kind == "audio_proxy":
         cmd = [tools.ffmpeg, "-v", "error", "-y", "-i", str(source), "-vn", "-c:a", "aac", "-b:a", "160k",

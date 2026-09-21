@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Asset, type Bg, type Named, CATEGORY_LABELS, formatBytes, formatClock, formatDuration, originalUrl, previewUrl } from "./api";
+import { api, type Asset, type Bg, type Named, CATEGORY_LABELS, EXT_LABELS, formatBytes, formatClock, formatDuration, originalUrl, previewUrl } from "./api";
 import { useInterval, useReducedMotion } from "./hooks";
 import { IconClose, IconDownload, IconExternal, IconHeart, IconMore, IconPause, IconPlay, IconPlus, IconRefresh } from "./icons";
 
@@ -12,6 +12,7 @@ interface Props {
   onChanged: (asset: Asset) => void;
   onSelectionsChanged: () => void;
   onOpenSelection: (id: string) => void;
+  onOpenAsset?: (id: string) => void;
 }
 
 export function Inspector(props: Props) {
@@ -169,8 +170,37 @@ export function Inspector(props: Props) {
             <div style={{ marginTop: 6 }}><button type="button" className="btn small" onClick={() => api.reanalyze(asset.id).then(setAsset)}>Regenerar</button></div>
           </div>
         )}
-        {!asset.available && (
+        {asset.archived && (
+          <div className="notice">
+            <strong>Dentro del pack, sin extraer.</strong> La ficha existe con identidad provisional (crc32 + tamaño); el hash, el análisis y las previews llegan al extraer.
+            <div style={{ marginTop: 8 }} className="row">
+              <button type="button" className="btn small primary" disabled={!asset.extractable} onClick={async () => { try { const r = await api.extractAsset(asset.id); setToast(r.message ?? "Extracción en cola"); load(true); } catch (e) { setToast((e as Error).message); } }}>Extraer y analizar</button>
+              <span className="tiny">{formatBytes(asset.version.size)} a la caché</span>
+            </div>
+          </div>
+        )}
+        {!asset.available && !asset.archived && (
           <div className="notice warn">La fuente está desconectada: la ficha y las previews se conservan, pero el original no puede obtenerse ahora.</div>
+        )}
+        {asset.duplicate_of && (
+          <div className="notice">Mismos bytes que otra ficha (duplicado confirmado por SHA-256). Se conserva porque tiene ediciones o pertenencias. <button type="button" className="btn ghost small" onClick={() => props.onOpenAsset?.(asset.duplicate_of!)}>Ver la ficha principal</button></div>
+        )}
+        {asset.locations.length > 1 && !asset.duplicate_of && (
+          <div className="notice">{asset.version.identity_kind === "sha256" ? "Mismos bytes en varias ubicaciones (confirmado por hash)." : "Candidato a duplicado: varias entradas con el mismo crc32 y tamaño; se confirmará al extraer."}</div>
+        )}
+        {asset.version.media_kind === "other" && (
+          <div className="notice">
+            <div><strong>{EXT_LABELS[asset.version.ext] ?? `Archivo ${asset.version.ext.toUpperCase()}`}</strong> · sin preview genérica{asset.preview.kind === "lut_demo" ? "; abajo, demostración sobre una imagen sintética" : ""}.</div>
+            {asset.required_app && <div className="tiny" style={{ marginTop: 4 }}>Aplicación necesaria: {asset.required_app}</div>}
+            {asset.lut && <div className="tiny" style={{ marginTop: 4 }}>LUT {asset.lut.size_3d ? `3D ${asset.lut.size_3d}³` : asset.lut.size_1d ? `1D ${asset.lut.size_1d}` : ""}{asset.lut.title ? ` · «${asset.lut.title}»` : ""} (cabecera del archivo)</div>}
+            {asset.provider_preview && (
+              <div style={{ marginTop: 8 }}>
+                <div className="tiny">Preview suministrada por el proveedor (archivo hermano):</div>
+                <button type="button" className="btn ghost small" onClick={() => props.onOpenAsset?.(asset.provider_preview!.asset_id)}>{asset.provider_preview.title}</button>
+                {asset.provider_preview.thumb_url && <img src={asset.provider_preview.thumb_url} alt="" style={{ width: "100%", borderRadius: 10, marginTop: 6 }} />}
+              </div>
+            )}
+          </div>
         )}
 
         <div className="desc">
@@ -188,10 +218,10 @@ export function Inspector(props: Props) {
         </div>
 
         <dl className="facts">
-          <Fact label="Duración" value={s.duration_s !== null ? formatDuration(s.duration_s) : null} pendingLabel={asset.version.media_kind === "image" ? "n/a" : undefined} status={asset.version.analysis_status} />
-          <Fact label="Resolución" value={s.width && s.height ? `${s.width} × ${s.height}` : null} pendingLabel={asset.version.media_kind === "audio" ? "n/a" : undefined} status={asset.version.analysis_status} />
-          <Fact label="Fotogramas" value={s.fps ? `${s.fps} fps` : null} pendingLabel={asset.version.media_kind !== "video" ? "n/a" : undefined} status={asset.version.analysis_status} />
-          <Fact label="Transparencia" value={alphaLabel} pendingLabel={asset.version.media_kind === "audio" ? "n/a" : undefined} status={asset.version.analysis_status} />
+          <Fact label="Duración" value={s.duration_s !== null ? formatDuration(s.duration_s) : null} pendingLabel={["image", "other"].includes(asset.version.media_kind) ? "n/a" : asset.archived ? "sin extraer" : undefined} status={asset.version.analysis_status} />
+          <Fact label="Resolución" value={s.width && s.height ? `${s.width} × ${s.height}` : null} pendingLabel={["audio", "other"].includes(asset.version.media_kind) ? "n/a" : asset.archived ? "sin extraer" : undefined} status={asset.version.analysis_status} />
+          <Fact label="Fotogramas" value={s.fps ? `${s.fps} fps` : null} pendingLabel={asset.version.media_kind !== "video" ? "n/a" : asset.archived ? "sin extraer" : undefined} status={asset.version.analysis_status} />
+          <Fact label="Transparencia" value={alphaLabel} pendingLabel={["audio", "other"].includes(asset.version.media_kind) ? "n/a" : asset.archived ? "sin extraer" : undefined} status={asset.version.analysis_status} />
           {asset.version.media_kind === "audio" && <Fact label="Muestreo" value={s.sample_rate ? `${s.sample_rate / 1000} kHz · ${s.bits ? `${s.bits} bit` : ""} ${s.channels ? (s.channels === 2 ? "estéreo" : `${s.channels} can.`) : ""}` : null} status={asset.version.analysis_status} />}
           {s.rotation ? <Fact label="Rotación" value={`${s.rotation}° (reproducción ${s.orientation === "vertical" ? "vertical" : "horizontal"})`} status="done" /> : null}
           <Fact label="Formato" value={[s.codec, s.pix_fmt].filter(Boolean).join(" · ") || asset.version.ext.toUpperCase()} status="done" />
@@ -275,20 +305,29 @@ export function Inspector(props: Props) {
               return <button key={id} type="button" className="btn ghost small" onClick={() => props.onOpenSelection(id)}>{sel?.name ?? "…"}</button>;
             })}</div>
           )}
-          <a className="btn block" href={originalUrl(asset)} download={asset.locations[0]?.file_name} aria-disabled={!asset.available} onClick={(e) => !asset.available && e.preventDefault()}>
-            <IconDownload />Descargar original
+          <a className="btn block" href={originalUrl(asset)} download={asset.locations[0]?.file_name} aria-disabled={!asset.available && !asset.extractable} onClick={(e) => !asset.available && !asset.extractable && e.preventDefault()}>
+            <IconDownload />{asset.archived ? "Extraer y descargar original" : "Descargar original"}
           </a>
           <a className="btn ghost block" href={originalUrl(asset, true)} target="_blank" rel="noreferrer" aria-disabled={!asset.available} onClick={(e) => !asset.available && e.preventDefault()}>
             <IconExternal />Ver original
           </a>
+          {asset.available && asset.locations.some((l) => l.kind === "pack" && l.status === "available") && (
+            <button type="button" className="btn ghost small" onClick={async () => { const r = await api.releaseAsset(asset.id); setToast(`Copia extraída liberada (${r.released})`); load(true); }}>Liberar copia extraída de la caché</button>
+          )}
         </div>
 
         <div className="notice">
           <div className="tiny">Archivo original</div>
           {asset.locations.map((l) => (
-            <div key={l.id} className="path">{l.source_label} / {l.rel_path} {l.status === "offline" ? "· offline" : ""}</div>
+            <div key={l.id} className="path">
+              {l.kind === "pack" ? `${l.pack_label ?? "pack"} › ${l.inner_path}` : `${l.source_label} / ${l.rel_path}`}
+              {l.status === "offline" ? " · offline" : l.status === "archived" ? " · en el ZIP" : l.kind === "pack" ? " · extraído" : ""}
+              {l.entry_error ? ` · error: ${l.entry_error}` : ""}
+            </div>
           ))}
-          <div className="tiny" style={{ marginTop: 6 }}>SHA-256 <code>{asset.version.sha256.slice(0, 16)}…</code></div>
+          <div className="tiny" style={{ marginTop: 6 }}>
+            {asset.version.identity_kind === "sha256" ? <>SHA-256 <code>{asset.version.sha256.slice(0, 16)}…</code></> : <>Identidad provisional <code>{asset.version.sha256}</code> (sin verificar por hash)</>}
+          </div>
         </div>
         {toast && <div className="notice ok" role="status">{toast}</div>}
       </div>
@@ -348,8 +387,16 @@ function Player({ asset, bg }: { asset: Asset; bg: Bg }) {
     onError: () => setFailed(true),
   };
 
+  if (asset.preview.status === "archived") {
+    return <div className="player"><div className="state">Sin extraer del pack: no hay preview todavía.</div></div>;
+  }
+  if (asset.preview.kind === "lut_demo") {
+    return asset.lut_demo_url
+      ? <div><div className="player bg-dark"><img src={asset.lut_demo_url} alt="Antes y después del LUT sobre una imagen de referencia sintética" /></div><div className="tiny" style={{ marginTop: 6 }}>Demostración: izquierda sin LUT, derecha con LUT, sobre una imagen sintética. No es tu material.</div></div>
+      : <div className="player"><div className="state">{asset.preview.status === "failed" ? "No se pudo aplicar el LUT (archivo no compatible)." : "Generando demostración del LUT…"}</div></div>;
+  }
   if (asset.preview.status === "pending") {
-    return <div className="player"><div className="state">{asset.version.analysis_status === "done" ? "Generando preview…" : "Analizando el archivo…"}</div></div>;
+    return <div className="player"><div className="state">{asset.version.analysis_status === "done" ? "Generando preview…" : asset.available ? "Analizando el archivo…" : "Original no disponible: análisis pendiente."}</div></div>;
   }
   if (asset.preview.status === "failed" || failed) {
     return <div className="player"><div className="state failed">Preview no disponible{failed ? " (el navegador no pudo reproducirla)" : ""}.</div></div>;

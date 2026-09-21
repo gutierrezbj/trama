@@ -33,12 +33,30 @@ class JobCancelled(Exception):
 
 
 def original_path_for_version(db: Database, settings: Settings, version_id: str) -> Path | None:
-    """Primera ubicación disponible cuyo archivo existe realmente. Marca offline las que no."""
+    """Primera ubicación disponible cuyo archivo existe realmente. Marca offline/archived las que no.
+    Ubicaciones de pack: el archivo es la copia extraída en la caché; si no está, sigue 'archived'."""
+    from .packs import cache_path_for
+
     rows = db.query(
-        "SELECT l.id, l.rel_path, l.status, l.source_id FROM locations l WHERE l.version_id = ? ORDER BY l.status = 'available' DESC, l.last_seen_at DESC",
+        "SELECT l.id, l.rel_path, l.status, l.source_id, l.kind, l.pack_entry_id, e.pack_id, e.inner_path, e.status AS entry_status "
+        "FROM locations l LEFT JOIN pack_entries e ON e.id = l.pack_entry_id WHERE l.version_id = ? ORDER BY l.status = 'available' DESC, l.kind = 'local' DESC, l.last_seen_at DESC",
         (version_id,),
     )
     for row in rows:
+        if row["kind"] == "pack":
+            if not row["pack_id"]:
+                continue
+            candidate = cache_path_for(settings, row["pack_id"], row["inner_path"])
+            if candidate.is_file() and row["entry_status"] == "extracted":
+                if row["status"] != "available":
+                    with db.tx() as conn:
+                        conn.execute("UPDATE locations SET status = 'available', last_seen_at = ? WHERE id = ?", (now_iso(), row["id"]))
+                return candidate
+            if row["status"] == "available":
+                with db.tx() as conn:
+                    conn.execute("UPDATE locations SET status = 'archived' WHERE id = ?", (row["id"],))
+                    conn.execute("UPDATE pack_entries SET status = 'archived', extracted_at = NULL WHERE id = ? AND status = 'extracted'", (row["pack_entry_id"],))
+            continue
         root = settings.source_for_id(row["source_id"])
         if root is None:
             continue
@@ -52,6 +70,15 @@ def original_path_for_version(db: Database, settings: Settings, version_id: str)
             with db.tx() as conn:
                 conn.execute("UPDATE locations SET status = 'offline' WHERE id = ?", (row["id"],))
     return None
+
+
+def archived_pack_locations(db: Database, version_id: str) -> list[dict]:
+    """Ubicaciones dentro de un pack (no extraídas) cuyo ZIP sigue registrado."""
+    return [dict(r) for r in db.query(
+        "SELECT e.id AS entry_id, e.pack_id, e.inner_path, e.size, e.status, p.status AS pack_status FROM locations l "
+        "JOIN pack_entries e ON e.id = l.pack_entry_id JOIN packs p ON p.id = e.pack_id WHERE l.version_id = ? AND l.kind = 'pack' AND e.status IN ('archived','failed')",
+        (version_id,),
+    )]
 
 
 class Worker:
@@ -97,8 +124,14 @@ class Worker:
     # ---- cola ------------------------------------------------------------
     def claim(self) -> dict | None:
         with self.db.tx() as conn:
+            running = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) AS n FROM jobs WHERE status = 'running' GROUP BY kind")}
+            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1}
+            blocked = [k for k, lim in limits.items() if running.get(k, 0) >= lim]
+            exclude = f" AND kind NOT IN ({','.join('?' for _ in blocked)})" if blocked else ""
             row = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'queued' ORDER BY CASE kind WHEN 'import' THEN 0 WHEN 'analyze' THEN 1 ELSE 2 END, created_at LIMIT 1"
+                "SELECT * FROM jobs WHERE status = 'queued'" + exclude +
+                " ORDER BY CASE kind WHEN 'import' THEN 0 WHEN 'index_pack' THEN 0 WHEN 'analyze' THEN 1 WHEN 'derive' THEN 2 ELSE 3 END, created_at LIMIT 1",
+                blocked,
             ).fetchone()
             if row is None:
                 return None
@@ -130,6 +163,10 @@ class Worker:
                 self._run_analyze(job)
             elif job["kind"] == "derive":
                 self._run_derive(job)
+            elif job["kind"] == "index_pack":
+                self._run_index_pack(job)
+            elif job["kind"] == "extract":
+                self._run_extract(job)
             else:
                 raise RuntimeError(f"Tipo de trabajo desconocido: {job['kind']}")
             self._finish(job_id, "done")
@@ -317,6 +354,97 @@ class Worker:
         if failures:
             raise RuntimeError("; ".join(failures))
         self._progress(job_id, 1.0, "Derivados listos")
+
+    def _run_index_pack(self, job: dict) -> None:
+        from .packs import index_pack
+
+        payload = loads(job["payload"], {})
+        job_id = job["id"]
+        stats = index_pack(
+            self.db, self.settings, payload["pack_id"],
+            lambda: self._cancel_requested(job_id) or self._stop.is_set(),
+            lambda p, m: self._progress(job_id, p, m),
+        )
+        self._progress(job_id, 1.0, f"{stats['media']} recursos catalogados ({stats['new_assets']} nuevos), {stats['unsafe']} entradas rechazadas")
+        self.notify()
+
+    def _run_extract(self, job: dict) -> None:
+        from .packs import DiskLimitError, PackError, extract_entry, select_entries
+
+        payload = loads(job["payload"], {})
+        job_id = job["id"]
+        pack = self.db.one("SELECT * FROM packs WHERE id = ?", (payload["pack_id"],))
+        if pack is None:
+            raise RuntimeError("Pack inexistente")
+        pack = dict(pack)
+        entries = select_entries(self.db, pack["id"], payload.get("prefix", ""), payload.get("entry_ids"))
+        total_bytes = sum(e["size"] for e in entries) or 1
+        done_bytes = 0
+        failures: list[str] = []
+        extracted = 0
+
+        def should_cancel() -> bool:
+            return self._cancel_requested(job_id) or self._stop.is_set()
+
+        for index, entry in enumerate(entries):
+            if should_cancel():
+                raise JobCancelled()
+            self._progress(job_id, done_bytes / total_bytes, f"{index}/{len(entries)} · {entry['file_name']}")
+            progress_ref = {"bytes": done_bytes, "last": 0.0}
+
+            def on_bytes(n: int) -> None:
+                progress_ref["bytes"] += n
+                frac = progress_ref["bytes"] / total_bytes
+                if frac - progress_ref["last"] >= 0.01:
+                    progress_ref["last"] = frac
+                    self._progress(job_id, frac, None)
+
+            try:
+                extract_entry(self.db, self.settings, pack, entry, should_cancel, on_bytes)
+                extracted += 1
+            except (ImportCancelled, JobCancelled):
+                raise
+            except DiskLimitError as exc:
+                with self.db.tx() as conn:
+                    conn.execute("UPDATE pack_entries SET error = ? WHERE id = ?", (str(exc), entry["id"]))
+                failures.append(str(exc))
+                break  # sin espacio: se detiene el lote; lo extraído se conserva
+            except Exception as exc:
+                with self.db.tx() as conn:
+                    conn.execute("UPDATE pack_entries SET status = 'failed', error = ? WHERE id = ?", (str(exc), entry["id"]))
+                failures.append(f"{entry['inner_path']}: {exc}")
+            done_bytes += entry["size"]
+            self.notify()
+        msg = f"{extracted}/{len(entries)} extraídas"
+        if failures:
+            raise RuntimeError(msg + " · " + "; ".join(failures[:5]) + (f" (+{len(failures) - 5})" if len(failures) > 5 else ""))
+        self._progress(job_id, 1.0, msg)
+
+
+def enqueue_index_pack(db: Database, pack_id: str) -> str:
+    now = now_iso()
+    with db.tx() as conn:
+        pending = conn.execute("SELECT id FROM jobs WHERE kind = 'index_pack' AND status IN ('queued','running') AND json_extract(payload, '$.pack_id') = ?", (pack_id,)).fetchone()
+        if pending:
+            return pending["id"]
+        job_id = new_id("job")
+        conn.execute(
+            "INSERT INTO jobs(id, kind, status, payload, created_at, max_attempts) VALUES (?, 'index_pack', 'queued', ?, ?, 1)",
+            (job_id, json.dumps({"pack_id": pack_id}), now),
+        )
+    return job_id
+
+
+def enqueue_extract(db: Database, pack_id: str, prefix: str = "", entry_ids: list[str] | None = None) -> str:
+    now = now_iso()
+    payload = {"pack_id": pack_id, "prefix": prefix, "entry_ids": entry_ids or []}
+    with db.tx() as conn:
+        job_id = new_id("job")
+        conn.execute(
+            "INSERT INTO jobs(id, kind, status, payload, created_at, max_attempts) VALUES (?, 'extract', 'queued', ?, ?, 1)",
+            (job_id, json.dumps(payload), now),
+        )
+    return job_id
 
 
 def enqueue_import(db: Database, source_id: str, sub_path: str) -> dict:

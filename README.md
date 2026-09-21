@@ -4,7 +4,7 @@ Tu biblioteca de producción. Un producto de JRGB.
 TRAMA convierte un repositorio de recursos audiovisuales en una biblioteca visual: descubrir, entender, seleccionar y obtener el original.
 
 ## Estado
-E1 (piloto local) implementado y verificado en el equipo del propietario el 2026-09-20: ver [BUILD_NOTES.md](BUILD_NOTES.md).
+E1 (piloto local, 2026-09-20) y E2 (pack completo en ZIP, 2026-09-21) implementados y verificados en el equipo del propietario: ver [BUILD_NOTES.md](BUILD_NOTES.md).
 Destino previsto: https://trama.jrgblanco.com (no desplegado ni configurado; E3).
 Drive, acceso online e integración con Escenda no están implementados.
 
@@ -19,7 +19,7 @@ Edita `.env` (creado a partir de `.env.example`) y pon en `TRAMA_ALLOWED_ROOTS` 
 ```bat
 scripts\serve.cmd
 ```
-Abre http://127.0.0.1:8765. El catálogo y los derivados se guardan en `%LOCALAPPDATA%\TRAMA` (fuera de OneDrive).
+Abre http://127.0.0.1:8765. El catálogo, los derivados y la caché de extracción de packs se guardan en `%LOCALAPPDATA%\TRAMA` (fuera de OneDrive). Los ZIP de packs se indexan sin extraer; la extracción es selectiva y respeta `TRAMA_CACHE_MAX_GB` y `TRAMA_MIN_FREE_GB`.
 
 Comandos individuales: `python -m trama check` (entorno), `python -m trama migrate`, `python -m trama serve`, todos desde `backend/` con el venv activo. Desarrollo de la interfaz: `npm run dev` en `frontend/` (proxy a la API en 8765).
 
@@ -28,7 +28,7 @@ Pruebas: `backend\.venv\Scripts\python -m pytest` desde `backend/`.
 ## Comienza aquí
 1. [Encargo para el agente](docs/ENCARGO-AGENTE.md)
 2. [Producto y experiencia](docs/PRODUCTO.md)
-3. [Arquitectura propuesta](docs/ARQUITECTURA.md) y [ADR-001](docs/ADR-001-stack-e1.md)
+3. [Arquitectura propuesta](docs/ARQUITECTURA.md), [ADR-001](docs/ADR-001-stack-e1.md) y [ADR-002](docs/ADR-002-packs-e2.md)
 4. [Identidad e interfaz](docs/IDENTIDAD.md)
 5. [Plan de trabajo](tasks/todo.md)
 

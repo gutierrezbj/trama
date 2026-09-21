@@ -22,12 +22,14 @@ Aceptación: recorrer incorporar → explorar → preview → selección → ori
 Probar rotación de la transición, duración del humo, conservación de alfa, reproducción WAV, reintentos y persistencia.
 No modificar los originales. Medir rendimiento en el equipo real; no prometer tiempos sin medición.
 
-## E2 — Pack completo
-- [ ] Inventarios privados, ZIP seguros y extracción selectiva (Pack/PackEntry en el modelo).
-- [ ] Jobs persistentes cancelables, límites de disco y concurrencia.
-- [ ] Duplicados confirmados por hash, relación con packs y ubicaciones.
-- [ ] Galería que soporte el inventario completo sin cargar todos los vídeos (virtualización; hoy paginación de 60).
-- [ ] Gestión honesta de plantillas, LUTs y formatos no soportados (hoy: se catalogan sin preview).
+## E2 — Pack completo (entregado 2026-09-21, ver BUILD_NOTES.md)
+- [x] Inventarios privados, ZIP seguros y extracción selectiva (Pack/PackEntry en el modelo, `docs/ADR-002-packs-e2.md`).
+- [x] Jobs persistentes cancelables, límites de disco y concurrencia (caché máx., espacio libre mínimo, una extracción a la vez).
+- [x] Duplicados confirmados por hash, relación con packs y ubicaciones (identidad provisional crc32+tamaño → SHA-256 al extraer; `duplicate_of`; `/api/duplicates`).
+- [x] Galería que soporta el inventario completo sin cargar todos los vídeos (virtualización por filas, páginas de 120 bajo demanda).
+- [x] Gestión honesta de plantillas, LUTs y formatos no soportados (aplicación necesaria, preview del proveedor si existe, demostración de LUT rotulada).
+- [ ] Pendiente menor: vista dedicada de duplicados (hoy: filtro «Solo duplicados y candidatos» y `/api/duplicates`).
+- [ ] Pendiente menor: el pack real no trae MOGRT/AEP con vídeo hermano; el enlace de preview del proveedor solo está probado con fixtures.
 
 ## E3 — Google Drive y acceso privado
 - [ ] OAuth, adaptador Drive, transferencia reanudable y caché.

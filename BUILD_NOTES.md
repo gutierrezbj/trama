@@ -86,3 +86,55 @@ Comparación con `assets/reference/ui-*.jpg`: misma estructura (sidebar compacta
 4. «Añadir a selección» → crear «Spot otoño» → Mis selecciones muestra la pieza con nota y orden.
 5. «Descargar original» → `Colorized 04.mov`, 81 483 668 bytes, `Content-Disposition: attachment`, rangos 206.
 6. Reiniciar `serve.cmd` → todo lo anterior sigue.
+
+---
+
+# BUILD_NOTES — E2 pack completo
+
+Fecha: 2026-09-21. Mismo equipo (garage1). Decisiones en `docs/ADR-002-packs-e2.md`.
+
+## Qué funciona (verificado con el pack real)
+- **Indexar ZIP sin extraer**: desde «Incorporar» se ven los ZIP de la carpeta y se indexan uno a uno o todos. Cada entrada queda catalogada con identidad provisional (crc32 + tamaño), categoría inferida de su carpeta interna y procedencia (pack + ruta interna). Nada se escribe fuera del catálogo.
+- **ZIP seguros**: rutas absolutas, con unidad, con `..`, enlaces simbólicos, profundidad > 32, entradas > 16 GB, ratio de compresión sospechoso y ZIP anidados se rechazan y se listan en la ficha del pack. Al extraer se comprueba el tamaño real contra el declarado y que el destino quede dentro de la caché.
+- **Extracción selectiva** por entrada, carpeta (árbol con recuentos y bytes) o pack completo, como trabajo cancelable con progreso por bytes. La descarga de un original archivado extrae solo esa entrada bajo demanda.
+- **Límites de disco**: caché máxima (`TRAMA_CACHE_MAX_GB`, 30) y espacio libre mínimo (`TRAMA_MIN_FREE_GB`, 10). Al superarse, la API responde 507 antes de encolar y el worker detiene el lote con error legible conservando lo extraído. «Liberar» borra copias de la caché (nunca el ZIP), la ficha y las previews siguen.
+- **Duplicados**: misma crc32+tamaño → una sola ficha candidata con varias ubicaciones; al extraer, el SHA-256 confirma o separa. Duplicado confirmado contra una ficha existente: la provisional sin ediciones se retira; con ediciones o pertenencias se conserva enlazada (`duplicate_of`). `/api/duplicates` y el filtro «Solo duplicados y candidatos» los muestran. No se borra ningún archivo.
+- **Galería virtualizada**: 8482 fichas con ~27 tarjetas montadas a la vez, páginas de 120 pedidas según el desplazamiento, sin errores en consola.
+- **Formatos sin preview**: plantillas/proyectos muestran la aplicación necesaria y, si existe, la preview del proveedor (archivo hermano). LUT `.cube/.3dl`: cabecera leída (título, tamaño de malla) y demostración antes/después sobre imagen sintética, rotulada como demostración.
+- **Inventario privado** CSV por pack en `%LOCALAPPDATA%\TRAMA\inventarios` (fuera del repo).
+
+## Comandos ejecutados
+```bat
+backend\.venv\Scripts\python -m trama migrate      (aplica 0002_packs.sql)
+scripts\serve.cmd
+cd frontend && npm run build
+backend\.venv\Scripts\python -m pytest             (desde backend\)
+```
+Resultado de `pytest`: 14 pruebas, 14 pasan (15,9 s): las 7 de E1 más 7 de E2 (ZIP inseguro con 7 entradas rechazadas, identidad provisional, extracción selectiva y descarga bajo demanda, liberación de caché, persistencia tras reinicio, duplicado confirmado que se funde, duplicado con ediciones que se conserva enlazado, límite de caché que detiene el lote, ZIP ignorado al incorporar carpetas, preview del proveedor y demostración de LUT).
+
+## Medidas sobre el pack real (72 ZIP, 141 GB en `Descargas\Pack Edicion`)
+| Operación | Medido |
+|---|---|
+| Indexar los 72 ZIP (lectura del directorio central + catálogo) | **2,9 s** en total. 9213 entradas multimedia, 0 rechazadas, 8482 fichas (731 entradas comparten crc32+tamaño y se agrupan como candidatas). |
+| Listar página 4000–4120 del catálogo | 0,27 s |
+| Búsqueda textual «neon particulas» sobre 8482 fichas | 0,23 s (20 resultados) |
+| Extraer + hash + análisis + proxies de 35 entradas (962 MB: 12 fondos de vídeo 1080p de 5–30 s, 24 vídeos de plantillas, 4 LUT) | 74,7 s → 12,9 MB/s **incluyendo** ffprobe y proxies H.264; la extracción sola es una fracción pequeña (no medida por separado). |
+| Caché tras esa prueba | 970 MB extraídos; 89 MB de derivados. |
+| Duplicados confirmados por hash tras extraer | 3 grupos (los mismos fondos repetidos en varios ZIP); 481 grupos candidatos sin confirmar. |
+
+Categorías inferidas del pack (solo por nombre de carpeta, revisables): VFX 1540, audio 3806, animación 802, transiciones 791, imágenes 653, overlays 500, color 298, fondos 65, plantillas 24, documentación 3.
+
+## Limitaciones y decisiones honestas
+- La identidad provisional no garantiza que dos entradas con la misma crc32 y tamaño sean idénticas; la interfaz lo marca «prov.» y «candidato» hasta extraer.
+- El pack real no contiene MOGRT/AEP con vídeo hermano; el enlace «preview del proveedor» está probado solo con fixtures. Sus 24 «plantillas» son MP4 clasificados así por el nombre de carpeta.
+- La demostración de LUT usa `testsrc2` (barras sintéticas), no material del usuario; es una orientación, no una previsualización real.
+- Extraer todo el pack no cabe en el disco actual (141 GB con ~140 GB libres) ni tendría sentido: el flujo previsto es extraer carpetas al trabajar y liberar la caché después.
+- El estado de un ZIP que desaparece se detecta al indexar/extraer (`offline`), no de forma continua.
+- No hay vista dedicada de duplicados: existe el filtro y el endpoint.
+
+## Verificación visual
+- `docs/capturas/05-packs-incorporar.png`: ZIP de una carpeta con botones de indexar, packs indexados con recuentos y uso de caché.
+- `docs/capturas/06-pack-carpetas.png`: árbol de carpetas de un pack con extraer/liberar por carpeta.
+- `docs/capturas/07-lut-demo.png`: ficha de un LUT con la demostración antes/después rotulada.
+- `docs/capturas/08-galeria-archivados.png`: galería virtualizada con recursos catalogados sin extraer.
+Ancho de teléfono: sin cambios respecto a E1 (ficha superpuesta, navegación plegable).
