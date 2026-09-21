@@ -176,3 +176,16 @@ Resultado de `pytest`: 20 pruebas, 20 pasan (24,3 s): las 14 de E1/E2 más 6 de 
 ## Verificación visual
 - `docs/capturas/09-acceso.png`: pantalla de acceso.
 - `docs/capturas/10-copias-drive.png`: vista «Copias y Drive» con Drive no configurado y snapshots.
+
+## Verificación con Google Drive real (2026-09-21)
+
+Conectado con un cliente OAuth propio (tipo «App de escritorio», modo Prueba) a la cuenta real del propietario:
+
+| Comprobación | Resultado real |
+|---|---|
+| OAuth con cuenta real | Conectado como `gutierrezbj@gmail.com`, carpeta privada «TRAMA» creada, alcance `drive.file`. |
+| Subida real del humo (`Colorized 04.mov`) | **81.483.668 bytes en 8,0 s (≈9,7 MB/s)**, md5 `37fa8cb0b48f…` verificado contra Google. |
+| Comprobar en Drive | Devuelve nombre, tamaño y md5 correctos del archivo en la cuenta. |
+| Descarga desde Drive | Archivo completo (81 MB, md5 idéntico) y rango parcial (206). |
+
+Corregido en pruebas reales: `drive-verify` elegía cualquier ubicación de Drive; ahora prioriza la disponible sobre una offline antigua (`test_drive_verify_prefers_available_location`). El cliente OAuth y el token viven solo en `%LOCALAPPDATA%\TRAMA\drive\`, fuera del repositorio. Modo Prueba: Google caduca el permiso a los ~7 días; TRAMA avisa y reconectar es un clic. Se publica la app (fin de la caducidad) cuando exista `trama.jrgblanco.com` con página y política, en el encargo de despliegue.

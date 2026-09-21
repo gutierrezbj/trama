@@ -462,7 +462,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     def drive_verify_asset(asset_id: str, st: AppState = Depends(S)):
         row = get_asset_row(st.db, asset_id)
         _require_drive(st)
-        loc = st.db.one("SELECT * FROM locations WHERE version_id = ? AND kind = 'drive'", (row["version_id"],))
+        loc = st.db.one("SELECT * FROM locations WHERE version_id = ? AND kind = 'drive' ORDER BY status = 'available' DESC, verified_at DESC", (row["version_id"],))
         if loc is None:
             raise HTTPException(404, "Este recurso no está en Drive")
         client = DriveClient(st.settings, st.drive_transport)

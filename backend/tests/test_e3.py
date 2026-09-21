@@ -324,6 +324,31 @@ def test_drive_oauth_upload_resume_verify_and_stream(drive_env):
     assert client.post(f"/api/assets/{opaque['id']}/drive-upload").status_code == 409
 
 
+def test_drive_verify_prefers_available_location(drive_env):
+    """Si el recurso tiene varias ubicaciones de Drive (p. ej. una vieja offline), verificar debe
+    elegir la disponible, no la primera cualquiera."""
+    client, settings, fake, files = drive_env["client"], drive_env["settings"], drive_env["fake"], drive_env["files"]
+    url = client.post("/api/drive/auth/start").json()["url"]
+    state = re.search(r"state=([^&]+)", url).group(1)
+    client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)
+    import_all(client)
+    opaque = next(a for a in client.get("/api/assets", params={"limit": 100}).json()["items"] if a["original_title"] == "test_opaque.mp4")
+    client.post(f"/api/assets/{opaque['id']}/drive-upload")
+    wait_idle(client)
+    # Insertar a mano una ubicación drive fantasma (offline) con un external_id que Google no conoce.
+    state_obj = drive_env["state"]
+    good = state_obj.db.one("SELECT * FROM locations WHERE version_id=(SELECT version_id FROM assets WHERE id=?) AND kind='drive'", (opaque["id"],))
+    from trama.db import new_id, now_iso
+    with state_obj.db.tx() as conn:
+        conn.execute(
+            "INSERT INTO locations(id, version_id, source_id, rel_path, file_name, size, mtime, status, last_seen_at, kind, external_id, checksum, verified_at) "
+            "VALUES (?, ?, ?, 'drive:fantasma', ?, ?, 0, 'offline', ?, 'drive', 'id-fantasma', 'x', ?)",
+            (new_id("loc"), good["version_id"], good["source_id"], good["file_name"], good["size"], now_iso(), now_iso()),
+        )
+    # Verificar debe usar la ubicación buena (available) y dar ok, no la fantasma.
+    assert client.post(f"/api/assets/{opaque['id']}/drive-verify").json()["ok"] is True
+
+
 def test_drive_not_configured_is_explicit(env):
     client = env["client"]
     st = client.get("/api/drive/status").json()
