@@ -25,8 +25,8 @@ export function Login({ status, onDone }: { status: AuthStatus; onDone: () => vo
         }}
       >
         <div className="brand" style={{ padding: 0, marginBottom: 18 }}>
-          <span className="brand-mark" aria-hidden="true" />
-          <div><span className="brand-name">TRAMA</span><span className="brand-sub">Tu biblioteca de producción</span></div>
+          <img className="brand-mark" src="/logo.png" alt="" aria-hidden="true" />
+          <div><span className="brand-name">TRAMA</span><span className="brand-sub">Un producto de JRGB</span></div>
         </div>
         <h1>Acceso privado</h1>
         <p className="muted">El catálogo, las previews y los originales solo se sirven con sesión iniciada.</p>

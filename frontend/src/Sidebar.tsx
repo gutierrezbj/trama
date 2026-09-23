@@ -21,10 +21,10 @@ export function Sidebar({ view, stats, categories, open, onNavigate }: Props) {
   return (
     <nav className={`sidebar${open ? " open" : ""}`} aria-label="Navegación principal">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true" />
+        <img className="brand-mark" src="/logo.png" alt="" aria-hidden="true" />
         <div>
           <span className="brand-name">TRAMA</span>
-          <span className="brand-sub">Tu biblioteca de producción</span>
+          <span className="brand-sub">Un producto de JRGB</span>
         </div>
       </div>
       <button type="button" className="nav-item" aria-current={is("explore")} onClick={() => onNavigate({ name: "explore" })}><IconSearch />Explorar</button>
