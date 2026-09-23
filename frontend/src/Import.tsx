@@ -118,6 +118,22 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
 
         <div className="panel">
           <h2>Packs indexados</h2>
+          {packs.data && packs.data.length > 0 && (() => {
+            const inDrive = packs.data.filter((p) => p.drive_verified_at).length;
+            const all = packs.data.length;
+            const running = (jobs.data ?? []).find((j) => j.kind === "pack_upload" && j.status === "running");
+            const queued = (jobs.data ?? []).filter((j) => j.kind === "pack_upload" && j.status === "queued").length;
+            return (
+              <div className="storage">
+                <div className="row between tiny"><span>Copia de los packs en tu Google Drive</span><span>{inDrive} de {all} verificados</span></div>
+                <div className="progress"><div style={{ width: `${(inDrive / all) * 100}%` }} /></div>
+                {running && <div className="tiny">Subiendo: {running.message}{queued ? ` · ${queued} en cola` : ""}</div>}
+                {inDrive < all && !running && !queued && (
+                  <button type="button" className="btn small" onClick={() => api.packsDriveUploadAll().then((r) => { setError(r.queued ? null : "Nada pendiente de subir"); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Subir los packs que faltan a Drive</button>
+                )}
+              </div>
+            );
+          })()}
           {st && (
             <div className="storage">
               <div className="row between tiny"><span>Caché de extracción</span><span>{formatBytes(st.cache_bytes)} de {formatBytes(st.cache_max_bytes)}</span></div>
@@ -149,7 +165,7 @@ function PackRow({ pack, onOpen }: { pack: Pack; onOpen: () => void }) {
     <div className="job">
       <div>
         <strong>{pack.label}</strong>
-        <div className="tiny">{pack.entries_media} recursos · {pack.extracted} extraídos ({formatBytes(pack.extracted_bytes)}) · {formatBytes(pack.bytes_total)} en total{pack.entries_unsafe ? ` · ${pack.entries_unsafe} entradas rechazadas` : ""}{pack.failed ? ` · ${pack.failed} con error` : ""}</div>
+        <div className="tiny">{pack.drive_verified_at ? "☁ en Drive · " : ""}{pack.entries_media} recursos · {pack.extracted} extraídos ({formatBytes(pack.extracted_bytes)}) · {formatBytes(pack.bytes_total)} en total{pack.entries_unsafe ? ` · ${pack.entries_unsafe} entradas rechazadas` : ""}{pack.failed ? ` · ${pack.failed} con error` : ""}</div>
         {pack.active_job && <div className="progress" style={{ marginTop: 6 }}><div style={{ width: `${Math.round(pack.active_job.progress * 100)}%` }} /></div>}
         {pack.active_job?.message && <div className="tiny">{pack.active_job.message}</div>}
         {pack.error && <div className="err">{pack.error}</div>}
@@ -198,7 +214,7 @@ export function PackDetail({ id, onBack, onExplore }: { id: string; onBack: () =
           <button type="button" className="btn small" onClick={() => act(() => api.reindexPack(p.id), "Reindexación en cola")}>Reindexar</button>
         </div>
       </div>
-      <div className="tiny path" style={{ marginBottom: 12 }}>{p.rel_path}{p.zip_present ? "" : " · el ZIP no está accesible ahora"}</div>
+      <div className="tiny path" style={{ marginBottom: 12 }}>{p.rel_path}{p.drive_verified_at ? " · ☁ copia verificada en Google Drive" : ""}{p.zip_present ? "" : p.drive_verified_at ? " · sin copia local: se extrae desde Drive" : " · el ZIP no está accesible ahora"}</div>
       {p.active_job && <div className="notice">{p.active_job.kind === "extract" ? "Extrayendo" : "Indexando"}: {p.active_job.message ?? ""} ({Math.round(p.active_job.progress * 100)} %)</div>}
       {msg && <div className="notice" role="status">{msg}</div>}
       {p.error && <div className="notice warn">{p.error}</div>}
@@ -213,7 +229,7 @@ export function PackDetail({ id, onBack, onExplore }: { id: string; onBack: () =
             <span className="folder-name">{f.path ? f.path.split("/").pop() : "(todo el pack)"}</span>
             <span className="tiny">{f.media} recursos · {f.extracted} extraídos · {formatBytes(f.bytes)}{f.unsafe ? ` · ${f.unsafe} rechazadas` : ""}</span>
             <div className="ops">
-              {f.extracted < f.media && <button type="button" className="btn small" disabled={!!p.active_job || !p.zip_present} onClick={() => act(() => api.extractPack(p.id, f.path), "Extracción en cola")}>Extraer</button>}
+              {f.extracted < f.media && <button type="button" className="btn small" disabled={!!p.active_job || (!p.zip_present && !p.drive_verified_at)} onClick={() => act(() => api.extractPack(p.id, f.path), "Extracción en cola")}>Extraer</button>}
               {f.extracted > 0 && <button type="button" className="btn ghost small" onClick={() => { if (window.confirm("¿Liberar las copias extraídas de esta carpeta? El ZIP, las fichas y las previews se conservan.")) act(() => api.releasePack(p.id, f.path), "Liberado"); }}>Liberar</button>}
             </div>
           </div>
@@ -264,7 +280,7 @@ function ImportRow({ imp, sources, onCancel }: { imp: Import; sources: Config["s
 export function JobsPanel({ jobs, onRetry, onCancel, onRetryAll }: { jobs: Job[]; onRetry: (id: string) => void; onCancel: (id: string) => void; onRetryAll: () => void }) {
   const failed = jobs.filter((j) => j.status === "failed");
   const active = jobs.filter((j) => j.status === "running" || j.status === "queued");
-  const labels: Record<string, string> = { import: "Incorporación", analyze: "Análisis", derive: "Previews", index_pack: "Índice de pack", extract: "Extracción", drive_upload: "Copia a Drive", backup: "Snapshot" };
+  const labels: Record<string, string> = { import: "Incorporación", analyze: "Análisis", derive: "Previews", index_pack: "Índice de pack", extract: "Extracción", drive_upload: "Copia a Drive", backup: "Snapshot", pack_upload: "Pack a Drive" };
   return (
     <>
       <div className="tiny">{active.length} activos · {failed.length} fallidos {failed.length > 0 && <button type="button" className="btn small" style={{ marginLeft: 8 }} onClick={onRetryAll}>Reintentar todos</button>}</div>

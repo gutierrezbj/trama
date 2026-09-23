@@ -64,6 +64,9 @@ export interface Pack {
   failed: number;
   active_job: { id: string; kind: string; status: string; progress: number; message: string | null } | null;
   zip_present: boolean;
+  drive_file_id?: string | null;
+  drive_md5?: string | null;
+  drive_verified_at?: string | null;
   folders?: PackFolder[];
   unsafe_entries?: { inner_path: string; unsafe_reason: string }[];
   failed_entries?: { id: string; inner_path: string; error: string }[];
@@ -156,7 +159,7 @@ export interface Named {
 
 export interface Job {
   id: string;
-  kind: "import" | "analyze" | "derive" | "index_pack" | "extract" | "drive_upload" | "backup";
+  kind: "import" | "analyze" | "derive" | "index_pack" | "extract" | "drive_upload" | "backup" | "pack_upload";
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   attempts: number;
   progress: number;
@@ -346,6 +349,8 @@ export const api = {
   patchPack: (id: string, label: string) => request<Pack>(`/api/packs/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
   extractPack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ job_id: string | null; entries: number; bytes: number; message?: string }>(`/api/packs/${id}/extract`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
+  packDriveUpload: (id: string) => request<{ job_id: string | null; message: string | null }>(`/api/packs/${id}/drive-upload`, { method: "POST" }),
+  packsDriveUploadAll: () => request<{ queued: number; already_in_drive: number; zip_missing: number; bytes: number }>("/api/packs/drive-upload-all", { method: "POST" }),
   releasePack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ released: number }>(`/api/packs/${id}/release`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
   storage: () => request<Storage>("/api/storage"),

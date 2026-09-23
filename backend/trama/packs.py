@@ -297,8 +297,9 @@ def select_entries(db: Database, pack_id: str, prefix: str = "", entry_ids: Iter
 def extract_entry(db: Database, settings: Settings, pack: dict, entry: dict, should_cancel: Callable[[], bool], on_bytes: Callable[[int], None] | None = None) -> str:
     """Extrae una entrada a la caché, calcula SHA-256 y concilia la identidad. Devuelve el version_id final."""
     zip_path = pack_zip_path(settings, pack)
-    if zip_path is None or not zip_path.is_file():
-        raise PackError("El ZIP no está accesible")
+    local_ok = zip_path is not None and zip_path.is_file()
+    if not local_ok and not pack.get("drive_file_id"):
+        raise PackError("El ZIP no está accesible ni en este equipo ni en Drive")
     if entry["status"] == "unsafe":
         raise PackError(f"Entrada rechazada: {entry['unsafe_reason']}")
     check_disk_limits(db, settings, entry["size"])
@@ -311,7 +312,33 @@ def extract_entry(db: Database, settings: Settings, pack: dict, entry: dict, sho
     tmp = dest.with_name(dest.name + ".part")
     digest = hashlib.sha256()
     written = 0
-    with zipfile.ZipFile(zip_path) as zf:
+    remote = None
+    if local_ok:
+        source = zip_path
+    else:
+        # ZIP solo en Drive: lectura aleatoria por rangos HTTP; solo viajan el índice y esta entrada.
+        from .drive import DriveClient, RemoteFile
+
+        client = DriveClient(settings, getattr(settings, "_drive_transport", None))
+        remote = RemoteFile(client, pack["drive_file_id"], int(pack["size"]))
+        source = remote
+    try:
+        _extract_from(source, entry, tmp, digest, should_cancel, on_bytes)
+    finally:
+        if remote is not None:
+            remote.close()
+    written = tmp.stat().st_size if tmp.exists() else 0
+    if written != entry["size"]:
+        tmp.unlink(missing_ok=True)
+        raise PackError(f"Tamaño extraído ({written}) distinto del declarado ({entry['size']})")
+    tmp.replace(dest)
+    sha = digest.hexdigest()
+    return reconcile_identity(db, entry, sha, written)
+
+
+def _extract_from(source, entry: dict, tmp: Path, digest, should_cancel, on_bytes) -> None:
+    written = 0
+    with zipfile.ZipFile(source) as zf:
         info = next((i for i in zf.infolist() if decode_name(i).replace("\\", "/").strip("/") == entry["inner_path"]), None)
         if info is None:
             raise PackError("La entrada ya no está en el ZIP")
@@ -329,12 +356,6 @@ def extract_entry(db: Database, settings: Settings, pack: dict, entry: dict, sho
                     on_bytes(len(chunk))
                 if should_cancel():
                     raise ImportCancelled()
-    if written != entry["size"]:
-        tmp.unlink(missing_ok=True)
-        raise PackError(f"Tamaño extraído ({written}) distinto del declarado ({entry['size']})")
-    tmp.replace(dest)
-    sha = digest.hexdigest()
-    return reconcile_identity(db, entry, sha, written)
 
 
 def reconcile_identity(db: Database, entry: dict, sha: str, size: int) -> str:

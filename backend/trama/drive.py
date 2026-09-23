@@ -189,6 +189,29 @@ class DriveClient:
         save_token(self.settings, self.token)
         return folder_id
 
+    def ensure_subfolder(self, name: str, parent_id: str) -> str:
+        """Subcarpeta dentro de la carpeta TRAMA (creada por la app, visible con drive.file)."""
+        cache = self.token.setdefault("subfolders", {})
+        key = f"{parent_id}/{name}"
+        if cache.get(key):
+            r = self._api("GET", f"/drive/v3/files/{cache[key]}", params={"fields": "id,trashed"})
+            if r.status_code == 200 and not r.json().get("trashed"):
+                return cache[key]
+        safe = name.replace("'", "\\'")
+        q = f"name = '{safe}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '{parent_id}' in parents"
+        r = self._api("GET", "/drive/v3/files", params={"q": q, "fields": "files(id,name)", "spaces": "drive"})
+        files = r.json().get("files", []) if r.status_code == 200 else []
+        if files:
+            folder_id = files[0]["id"]
+        else:
+            r = self._api("POST", "/drive/v3/files", json={"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]}, params={"fields": "id"})
+            if r.status_code != 200:
+                raise DriveError(f"No se pudo crear la subcarpeta {name}: {r.status_code} {r.text[:200]}")
+            folder_id = r.json()["id"]
+        cache[key] = folder_id
+        save_token(self.settings, self.token)
+        return folder_id
+
     # --- subida reanudable
     def start_upload(self, name: str, size: int, mime: str, folder_id: str, app_properties: dict | None = None) -> str:
         meta = {"name": name, "parents": [folder_id]}
@@ -285,6 +308,65 @@ class DriveClient:
         r = self._api("DELETE", f"/drive/v3/files/{file_id}")
         if r.status_code not in (200, 204, 404):
             raise DriveError(f"No se pudo borrar en Drive: {r.status_code}")
+
+
+class RemoteFile:
+    """Archivo de Drive como objeto binario de solo lectura con `seek`: cada lectura pide por rango
+    HTTP solo los bytes necesarios (con un pequeño búfer). Permite a `zipfile` abrir un ZIP que está
+    solo en Drive y extraer una entrada sin descargar el ZIP completo."""
+
+    BLOCK = 1024 * 1024
+
+    def __init__(self, client: "DriveClient", file_id: str, size: int):
+        self.client, self.file_id, self.size = client, file_id, size
+        self.pos = 0
+        self._buf_start, self._buf = 0, b""
+        self.bytes_fetched = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        base = {0: 0, 1: self.pos, 2: self.size}[whence]
+        self.pos = max(0, base + offset)
+        return self.pos
+
+    def _fetch(self, start: int, length: int) -> bytes:
+        end = min(self.size, start + length) - 1
+        if end < start:
+            return b""
+        r = self.client._api("GET", f"/drive/v3/files/{self.file_id}", params={"alt": "media"}, headers={"Range": f"bytes={start}-{end}"})
+        if r.status_code not in (200, 206):
+            raise DriveError(f"Lectura por rango rechazada: {r.status_code}")
+        data = r.content if r.status_code == 206 else r.content[start:end + 1]
+        self.bytes_fetched += len(data)
+        return data
+
+    def read(self, n: int = -1) -> bytes:
+        if self.pos >= self.size:
+            return b""
+        if n is None or n < 0:
+            n = self.size - self.pos
+        n = min(n, self.size - self.pos)
+        off = self.pos - self._buf_start
+        if 0 <= off and off + n <= len(self._buf):
+            data = self._buf[off:off + n]
+        elif n >= self.BLOCK:
+            data = self._fetch(self.pos, n)
+        else:
+            self._buf_start, self._buf = self.pos, self._fetch(self.pos, self.BLOCK)
+            data = self._buf[:n]
+        self.pos += len(data)
+        return data
+
+    def close(self) -> None:
+        self.client.close()
 
 
 def md5_of(path: Path, on_bytes: Callable[[int], None] | None = None) -> str:

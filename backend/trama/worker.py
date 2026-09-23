@@ -127,7 +127,7 @@ class Worker:
     def claim(self) -> dict | None:
         with self.db.tx() as conn:
             running = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) AS n FROM jobs WHERE status = 'running' GROUP BY kind")}
-            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1}
+            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1}
             blocked = [k for k, lim in limits.items() if running.get(k, 0) >= lim]
             exclude = f" AND kind NOT IN ({','.join('?' for _ in blocked)})" if blocked else ""
             row = conn.execute(
@@ -171,6 +171,8 @@ class Worker:
                 self._run_extract(job)
             elif job["kind"] == "drive_upload":
                 self._run_drive_upload(job)
+            elif job["kind"] == "pack_upload":
+                self._run_pack_upload(job)
             elif job["kind"] == "backup":
                 self._run_backup(job)
             else:
@@ -515,6 +517,81 @@ class Worker:
             self._progress(job_id, 1.0, "Subido y verificado")
         finally:
             client.close()
+
+
+    def _run_pack_upload(self, job: dict) -> None:
+        """Sube el ZIP de un pack tal cual a TRAMA/Packs en Drive. Reanudable (sesión y offset en el
+        payload) y verificado: md5 local contra md5Checksum de Drive antes de registrar la copia."""
+        from .drive import DriveClient, DriveError, md5_of
+        from .packs import pack_zip_path
+
+        job_id = job["id"]
+        payload = loads(job["payload"], {})
+        pack = self.db.one("SELECT * FROM packs WHERE id = ?", (payload["pack_id"],))
+        if pack is None:
+            raise RuntimeError("Pack inexistente")
+        pack = dict(pack)
+        if pack.get("drive_file_id") and pack.get("drive_verified_at"):
+            self._progress(job_id, 1.0, "Ya estaba en Drive")
+            return
+        path = pack_zip_path(self.settings, pack)
+        if path is None or not path.is_file():
+            raise RuntimeError("El ZIP no está en este equipo: no se puede subir")
+        size = path.stat().st_size
+        client = DriveClient(self.settings, getattr(self, "drive_transport", None))
+        try:
+            folder_id = client.ensure_subfolder("Packs", client.ensure_folder())
+            session = payload.get("session_uri")
+            offset = 0
+            if session:
+                try:
+                    offset = client.upload_status(session, size)
+                except DriveError:
+                    session = None
+            if not session:
+                session = client.start_upload(path.name, size, "application/zip", folder_id, {"trama_pack": pack["id"]})
+                offset = 0
+                with self.db.tx() as conn:
+                    conn.execute("UPDATE jobs SET payload = ? WHERE id = ?", (json.dumps({**payload, "session_uri": session}), job_id))
+
+            def on_progress(sent: int) -> None:
+                self._progress(job_id, 0.02 + 0.9 * sent / max(1, size), f"{pack['label']} · {sent // 2**20} / {size // 2**20} MB")
+
+            self._progress(job_id, 0.02, f"{pack['label']} · reanudando desde {offset // 2**20} MB" if offset else f"{pack['label']} · subiendo")
+            meta = client.upload_file(path, session, size, offset, on_progress, lambda: self._cancel_requested(job_id) or self._stop.is_set())
+            self._progress(job_id, 0.94, f"{pack['label']} · verificando md5")
+            local_md5 = md5_of(path)
+            remote_md5 = meta.get("md5Checksum")
+            if not remote_md5 or remote_md5 != local_md5:
+                client.delete_file(meta["id"])
+                raise RuntimeError(f"Verificación fallida: md5 local {local_md5} ≠ Drive {remote_md5}; copia remota eliminada")
+            with self.db.tx() as conn:
+                conn.execute(
+                    "UPDATE packs SET drive_file_id = ?, drive_md5 = ?, drive_verified_at = ? WHERE id = ?",
+                    (meta["id"], remote_md5, now_iso(), pack["id"]),
+                )
+            self._progress(job_id, 1.0, f"{pack['label']} · subido y verificado")
+        finally:
+            client.close()
+
+
+def enqueue_pack_upload(db: Database, pack_id: str) -> str | None:
+    now = now_iso()
+    with db.tx() as conn:
+        pack = conn.execute("SELECT drive_file_id, drive_verified_at FROM packs WHERE id = ?", (pack_id,)).fetchone()
+        if pack is None:
+            return None
+        if pack["drive_file_id"] and pack["drive_verified_at"]:
+            return None
+        pending = conn.execute("SELECT id FROM jobs WHERE kind = 'pack_upload' AND status IN ('queued','running') AND json_extract(payload, '$.pack_id') = ?", (pack_id,)).fetchone()
+        if pending:
+            return pending["id"]
+        job_id = new_id("job")
+        conn.execute(
+            "INSERT INTO jobs(id, kind, status, payload, created_at, max_attempts) VALUES (?, 'pack_upload', 'queued', ?, ?, 5)",
+            (job_id, json.dumps({"pack_id": pack_id}), now),
+        )
+    return job_id
 
 
 def ensure_drive_source(db: Database, folder_id: str) -> str:

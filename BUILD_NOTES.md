@@ -189,3 +189,24 @@ Conectado con un cliente OAuth propio (tipo «App de escritorio», modo Prueba) 
 | Descarga desde Drive | Archivo completo (81 MB, md5 idéntico) y rango parcial (206). |
 
 Corregido en pruebas reales: `drive-verify` elegía cualquier ubicación de Drive; ahora prioriza la disponible sobre una offline antigua (`test_drive_verify_prefers_available_location`). El cliente OAuth y el token viven solo en `%LOCALAPPDATA%\TRAMA\drive\`, fuera del repositorio. Modo Prueba: Google caduca el permiso a los ~7 días; TRAMA avisa y reconectar es un clic. Se publica la app (fin de la caducidad) cuando exista `trama.jrgblanco.com` con página y política, en el encargo de despliegue.
+
+---
+
+# BUILD_NOTES — E3b marca y biblioteca en la nube (2026-09-23)
+
+## Qué se hizo
+- **Marca**: el pez JRGB (recortado de `Arte/Logo_Trama.png`, que no se versiona) sustituye al rectángulo provisional en la cabecera, la pantalla de acceso y el favicon.
+- **Packs a Google Drive**: los ZIP no son del propietario (venían de una carpeta compartida por otra persona), así que se copian tal cual a `TRAMA/Packs` en su Drive. Trabajo `pack_upload`: reanudable (sesión guardada; tras un corte pregunta a Drive el offset), verificado por md5 contra Google antes de registrar `packs.drive_file_id`. Uno a la vez. Migración `0004_packs_drive.sql`.
+- **Extracción remota**: si el ZIP ya no está en local pero sí verificado en Drive, `extract_entry` abre el ZIP en Drive como archivo con `seek` (`drive.RemoteFile`) y pide por rangos HTTP solo el directorio central y la entrada pedida. La biblioteca sigue funcionando sin copia local de los ZIP.
+- Decisión de destino: Google Drive (ya integrado y probado, 4,9 TB libres). OneDrive descartado porque su cliente tiende a sincronizar a disco local (disco al 87 %); iCloud sin API usable en Windows.
+
+## Verificado
+| Prueba | Resultado |
+|---|---|
+| Pack pequeño a Drive real | 8 KB, subido y verificado por md5 en 5 s, en `TRAMA/Packs`. |
+| Subida masiva en curso | 71 packs, 139,9 GB encolados; ritmo observado ~5–6 MB/s ⇒ **6–8 h** estimadas. |
+| Reanudación real | Servidor reiniciado con el ZIP 001 a 1.856/2.037 MB: al volver terminó desde ahí y quedó verificado. |
+| Pruebas | 23/23 (nuevas: subida de pack reanudable y verificada; extracción de una entrada con el ZIP solo en Drive, y de una carpeta entera). |
+
+## Pendiente (con OK explícito del propietario)
+- Borrar los ZIP locales de `Descargas\Pack Edicion` **solo cuando los 72 estén verificados en Drive**. Irreversible; no se hace automáticamente.
