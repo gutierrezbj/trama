@@ -243,3 +243,32 @@ def test_provider_preview_and_lut_demo(env, tools):
     demo = client.get(lut_a["lut_demo_url"])
     assert demo.status_code == 200 and demo.content[:3] == b"\xff\xd8\xff"
     assert lut_a["category"] == "color"
+
+
+def test_previews_for_whole_pack_leave_no_extracted_copies(env):
+    """«Vistas previas para todo»: cada recurso del pack queda analizado y con preview, las copias
+    extraídas se sueltan (la caché queda vacía) y repetirlo no vuelve a encolar nada."""
+    client = env["client"]
+    root: Path = env["root"]
+    files = env["files"]
+    (root / "packs").mkdir()
+    make_pack(root / "packs", {"VFX/humo.mov": files["alpha"], "Transiciones/barrido.mp4": files["opaque"], "Audio/tono.wav": files["audio"]}, "compra.zip")
+    sid = source_id(client)
+    pack = index_and_wait(client, sid, "packs/compra.zip")
+    assert client.get("/api/packs/previews").json()["pending"] == 3
+
+    r = client.post("/api/packs/previews")
+    assert r.status_code == 202 and r.json() == {"queued": 1, "unreachable": 0}
+    wait_idle(client)
+
+    status = client.get("/api/packs/previews").json()
+    assert status["pending"] == 0 and status["running"] is None
+    items = client.get("/api/assets", params={"pack_id": pack["id"], "limit": 100}).json()["items"]
+    assert len(items) == 3
+    for a in items:
+        assert a["archived"] is True, a["original_title"]               # la copia extraída se soltó
+        assert a["version"]["identity_kind"] == "sha256"
+        assert a["preview"]["status"] == "ready", a["original_title"]
+    assert client.get(f"/api/packs/{pack['id']}").json()["extracted"] == 0
+    assert not [p for p in env["settings"].cache_dir.rglob("*") if p.is_file()]
+    assert client.post("/api/packs/previews").json()["queued"] == 0

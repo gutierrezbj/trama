@@ -294,11 +294,11 @@ def select_entries(db: Database, pack_id: str, prefix: str = "", entry_ids: Iter
     return [dict(r) for r in rows if r["status"] in ("archived", "failed")]
 
 
-def extract_entry(db: Database, settings: Settings, pack: dict, entry: dict, should_cancel: Callable[[], bool], on_bytes: Callable[[int], None] | None = None) -> str:
+def extract_entry(db: Database, settings: Settings, pack: dict, entry: dict, should_cancel: Callable[[], bool], on_bytes: Callable[[int], None] | None = None, zf: zipfile.ZipFile | None = None) -> str:
     """Extrae una entrada a la caché, calcula SHA-256 y concilia la identidad. Devuelve el version_id final."""
     zip_path = pack_zip_path(settings, pack)
     local_ok = zip_path is not None and zip_path.is_file()
-    if not local_ok and not pack.get("drive_file_id"):
+    if zf is None and not local_ok and not pack.get("drive_file_id"):
         raise PackError("El ZIP no está accesible ni en este equipo ni en Drive")
     if entry["status"] == "unsafe":
         raise PackError(f"Entrada rechazada: {entry['unsafe_reason']}")
@@ -313,7 +313,9 @@ def extract_entry(db: Database, settings: Settings, pack: dict, entry: dict, sho
     digest = hashlib.sha256()
     written = 0
     remote = None
-    if local_ok:
+    if zf is not None:
+        source = zf  # ZIP ya abierto por el llamador (lotes): no se relee el directorio central
+    elif local_ok:
         source = zip_path
     else:
         # ZIP solo en Drive: lectura aleatoria por rangos HTTP; solo viajan el índice y esta entrada.
@@ -337,25 +339,62 @@ def extract_entry(db: Database, settings: Settings, pack: dict, entry: dict, sho
 
 
 def _extract_from(source, entry: dict, tmp: Path, digest, should_cancel, on_bytes) -> None:
-    written = 0
+    if isinstance(source, zipfile.ZipFile):
+        _extract_member(source, entry, tmp, digest, should_cancel, on_bytes)
+        return
     with zipfile.ZipFile(source) as zf:
-        info = next((i for i in zf.infolist() if decode_name(i).replace("\\", "/").strip("/") == entry["inner_path"]), None)
-        if info is None:
-            raise PackError("La entrada ya no está en el ZIP")
-        with zf.open(info) as src, open(tmp, "wb") as out:
-            while True:
-                chunk = src.read(CHUNK)
-                if not chunk:
-                    break
-                written += len(chunk)
-                if written > entry["size"]:
-                    raise PackError("La entrada excede su tamaño declarado (posible zip bomb)")
-                out.write(chunk)
-                digest.update(chunk)
-                if on_bytes:
-                    on_bytes(len(chunk))
-                if should_cancel():
-                    raise ImportCancelled()
+        _extract_member(zf, entry, tmp, digest, should_cancel, on_bytes)
+
+
+def _extract_member(zf: zipfile.ZipFile, entry: dict, tmp: Path, digest, should_cancel, on_bytes) -> None:
+    written = 0
+    info = next((i for i in zf.infolist() if decode_name(i).replace("\\", "/").strip("/") == entry["inner_path"]), None)
+    if info is None:
+        raise PackError("La entrada ya no está en el ZIP")
+    with zf.open(info) as src, open(tmp, "wb") as out:
+        while True:
+            chunk = src.read(CHUNK)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > entry["size"]:
+                raise PackError("La entrada excede su tamaño declarado (posible zip bomb)")
+            out.write(chunk)
+            digest.update(chunk)
+            if on_bytes:
+                on_bytes(len(chunk))
+            if should_cancel():
+                raise ImportCancelled()
+
+
+class PackReader:
+    """Abre el ZIP de un pack una sola vez (local si está, si no en Drive por rangos) para extraer
+    muchas entradas seguidas sin volver a leer el directorio central en cada una."""
+
+    def __init__(self, settings: Settings, pack: dict):
+        self._remote = None
+        zip_path = pack_zip_path(settings, pack)
+        if zip_path is not None and zip_path.is_file():
+            self.zf = zipfile.ZipFile(zip_path)
+        elif pack.get("drive_file_id"):
+            from .drive import DriveClient, RemoteFile
+
+            client = DriveClient(settings, getattr(settings, "_drive_transport", None))
+            self._remote = RemoteFile(client, pack["drive_file_id"], int(pack["size"]))
+            self.zf = zipfile.ZipFile(self._remote)
+        else:
+            raise PackError("El ZIP no está accesible ni en este equipo ni en Drive")
+
+    def __enter__(self) -> "PackReader":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self.zf.close()
+        if self._remote is not None:
+            self._remote.close()
 
 
 def reconcile_identity(db: Database, entry: dict, sha: str, size: int) -> str:

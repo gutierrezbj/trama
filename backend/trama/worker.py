@@ -127,7 +127,7 @@ class Worker:
     def claim(self) -> dict | None:
         with self.db.tx() as conn:
             running = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) AS n FROM jobs WHERE status = 'running' GROUP BY kind")}
-            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1}
+            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1, "preview_pack": 1}
             blocked = [k for k, lim in limits.items() if running.get(k, 0) >= lim]
             exclude = f" AND kind NOT IN ({','.join('?' for _ in blocked)})" if blocked else ""
             row = conn.execute(
@@ -175,6 +175,8 @@ class Worker:
                 self._run_pack_upload(job)
             elif job["kind"] == "backup":
                 self._run_backup(job)
+            elif job["kind"] == "preview_pack":
+                self._run_preview_pack(job)
             else:
                 raise RuntimeError(f"Tipo de trabajo desconocido: {job['kind']}")
             self._finish(job_id, "done")
@@ -429,6 +431,88 @@ class Worker:
         self._progress(job_id, 1.0, msg)
 
 
+    def _run_preview_pack(self, job: dict) -> None:
+        """Vistas previas de todo un pack sin dejar copias: extrae por lotes (ZIP abierto una vez,
+        local o en Drive), analiza y genera derivados de ese lote y suelta las copias extraídas.
+        Reanudable: lo que ya tiene análisis se salta."""
+        from .packs import DiskLimitError, PackReader, extract_entry, release_entries
+
+        payload = loads(job["payload"], {})
+        job_id = job["id"]
+        pack = self.db.one("SELECT * FROM packs WHERE id = ?", (payload["pack_id"],))
+        if pack is None:
+            raise RuntimeError("Pack inexistente")
+        pack = dict(pack)
+        entries = pending_preview_entries(self.db, pack["id"])
+        total = len(entries)
+        if total == 0:
+            self._progress(job_id, 1.0, "Todas las vistas previas ya estaban")
+            return
+
+        def should_cancel() -> bool:
+            return self._cancel_requested(job_id) or self._stop.is_set()
+
+        done = failed = 0
+        with PackReader(self.settings, pack) as reader:
+            for start in range(0, total, PREVIEW_BATCH):
+                batch = entries[start:start + PREVIEW_BATCH]
+                extracted_ids, versions = [], set()
+                try:
+                    for pos, entry in enumerate(batch, start=start):
+                        if should_cancel():
+                            raise JobCancelled()
+                        self._progress(job_id, pos / total, f"{pack['label']} · {pos}/{total} · {entry['file_name']}")
+                        try:
+                            versions.add(extract_entry(self.db, self.settings, pack, entry, should_cancel, zf=reader.zf))
+                            extracted_ids.append(entry["id"])
+                        except (ImportCancelled, JobCancelled, DiskLimitError):
+                            raise
+                        except Exception as exc:
+                            failed += 1
+                            with self.db.tx() as conn:
+                                conn.execute("UPDATE pack_entries SET status = 'failed', error = ? WHERE id = ?", (str(exc), entry["id"]))
+                    self._drain_media_jobs(versions, should_cancel)
+                finally:
+                    # Las vistas previas quedan; las copias extraídas se sueltan siempre.
+                    release_entries(self.db, self.settings, pack["id"], "", extracted_ids)
+                done += len(extracted_ids)
+                self.notify()
+        msg = f"{done} vistas previas generadas" + (f", {failed} fallidas" if failed else "")
+        if failed and not done:
+            raise RuntimeError(msg)
+        self._progress(job_id, 1.0, msg)
+
+    def _drain_media_jobs(self, versions: set[str], should_cancel: Callable[[], bool]) -> None:
+        """Ejecuta aquí (o espera a que otro hilo termine) los análisis y derivados de estas versiones,
+        para poder soltar sus copias extraídas. No depende de que haya otro hilo libre."""
+        if not versions:
+            return
+        ids = list(versions)
+        marks = ",".join("?" for _ in ids)
+        while True:
+            if should_cancel():
+                raise JobCancelled()
+            rows = self.db.query(
+                f"SELECT * FROM jobs WHERE version_id IN ({marks}) AND kind IN ('analyze','derive') AND status IN ('queued','running') ORDER BY created_at",
+                ids,
+            )
+            if not rows:
+                return
+            ran = False
+            for row in rows:
+                if row["status"] != "queued":
+                    continue
+                with self.db.tx() as conn:
+                    cur = conn.execute(
+                        "UPDATE jobs SET status = 'running', attempts = attempts + 1, started_at = ?, error = NULL, message = NULL, progress = 0 WHERE id = ? AND status = 'queued'",
+                        (now_iso(), row["id"]),
+                    )
+                if cur.rowcount:
+                    self._run(dict(row))
+                    ran = True
+            if not ran:
+                time.sleep(0.5)
+
     def _run_backup(self, job: dict) -> None:
         from .backup import create_backup
 
@@ -657,6 +741,35 @@ def enqueue_extract(db: Database, pack_id: str, prefix: str = "", entry_ids: lis
         conn.execute(
             "INSERT INTO jobs(id, kind, status, payload, created_at, max_attempts) VALUES (?, 'extract', 'queued', ?, ?, 1)",
             (job_id, json.dumps(payload), now),
+        )
+    return job_id
+
+
+PREVIEW_BATCH = 25  # entradas extraídas a la vez antes de generar sus vistas y soltarlas
+
+
+def pending_preview_entries(db: Database, pack_id: str | None = None) -> list[dict]:
+    """Entradas multimedia de packs, sin extraer, cuya versión aún no se ha analizado."""
+    where = "AND pe.pack_id = ?" if pack_id else ""
+    rows = db.query(
+        "SELECT pe.* FROM pack_entries pe JOIN asset_versions v ON v.id = pe.version_id "
+        "WHERE pe.status = 'archived' AND pe.media_kind IN ('video','audio','image') AND v.analysis_status = 'pending' "
+        f"{where} ORDER BY pe.pack_id, pe.inner_path",
+        (pack_id,) if pack_id else (),
+    )
+    return [dict(r) for r in rows]
+
+
+def enqueue_previews(db: Database, pack_id: str) -> str | None:
+    now = now_iso()
+    with db.tx() as conn:
+        pending = conn.execute("SELECT id FROM jobs WHERE kind = 'preview_pack' AND status IN ('queued','running') AND json_extract(payload, '$.pack_id') = ?", (pack_id,)).fetchone()
+        if pending:
+            return None
+        job_id = new_id("job")
+        conn.execute(
+            "INSERT INTO jobs(id, kind, status, payload, created_at, max_attempts) VALUES (?, 'preview_pack', 'queued', ?, ?, 3)",
+            (job_id, json.dumps({"pack_id": pack_id}), now),
         )
     return job_id
 

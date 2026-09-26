@@ -307,3 +307,7 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+.previews-banner { margin-bottom: 14px; }
+.previews-banner .row { gap: 12px; }
+.chip.chip-clear { border-style: dashed; }

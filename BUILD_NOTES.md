@@ -210,3 +210,33 @@ Corregido en pruebas reales: `drive-verify` elegía cualquier ubicación de Driv
 
 ## Pendiente (con OK explícito del propietario)
 - Borrar los ZIP locales de `Descargas\Pack Edicion` **solo cuando los 72 estén verificados en Drive**. Irreversible; no se hace automáticamente.
+
+## Cierre de la subida y prueba sin ZIP locales (2026-09-26)
+- Subida terminada: **72/72 packs verificados por md5 en Drive** (150 GB, 0 fallos). Ritmo real ~8 MB/s: menos de 4 h.
+- Prueba «solo nube»: la carpeta local de packs se aparta (renombrada, no borrada) para que TRAMA no la encuentre. Extracciones reales de packs elegidos al azar: todas con tamaño exacto, SHA-256 calculado y previsualizaciones generadas.
+- **Corregido `RemoteFile`**: una lectura que empezaba dentro del búfer y acababa fuera descartaba el búfer y volvía a pedir los mismos bytes; además el bloque era fijo de 1 MB. Ahora sirve primero lo que ya tiene y, en lecturas secuenciales, el bloque se dobla hasta 32 MB (un salto vuelve a 1 MB).
+
+| Entrada de ~152 MB desde Drive | Peticiones | Bytes bajados | Velocidad |
+|---|---|---|---|
+| Antes | 287 | 302 MB | 1,1 MB/s |
+| Después | 9 | 167 MB | **21 MB/s** |
+
+- Pruebas: 24/24 (nueva `test_remote_file_reads_sequential_entry_without_refetching`).
+- Borrado de los ZIP locales: sigue pendiente del OK del propietario tras probar el uso real desde Drive.
+
+---
+
+# BUILD_NOTES — E3d vistas previas para todo y claridad (2026-09-26)
+
+Motivo (prueba real del propietario): casi toda la biblioteca se veía como «En el pack, sin extraer», sin imagen; y «Incorporar», «Copias y Drive» y «Añadir a selección» no se entendían.
+
+## Qué se hizo
+- **Trabajo `preview_pack`**: por pack, abre el ZIP una sola vez (`packs.PackReader`, local o Drive por rangos), extrae lotes de 25 entradas, ejecuta en el propio hilo sus análisis y derivados (`_drain_media_jobs`, sin depender de otro hilo libre) y suelta siempre las copias extraídas. Quedan las vistas previas; los originales siguen en el ZIP. Reanudable: solo toma entradas cuya versión sigue con análisis pendiente. `GET/POST /api/packs/previews`.
+- **Interfaz**: aviso «Vistas previas de tus packs — X de N» con el botón «Generar vistas previas» (Explorar y Fuentes y packs). Menú: «Proyectos» (antes «Mis selecciones»), sección «Ajustes» con «Fuentes y packs» (antes «Incorporar») y «Drive y copias». «Guardar en proyecto» en la ficha. «✕ Limpiar filtros» visible siempre que haya un filtro. Drive muestra packs y originales.
+
+## Verificado
+| Prueba | Resultado |
+|---|---|
+| Pack real de 2 GB solo en Drive, 39 recursos | 36 con vista previa en 2 min 50 s; 3 fallidos por archivos MP4 truncados dentro del propio pack («moov atom not found»), marcados como error de análisis. Ninguna copia extraída residual. |
+| Estimación para toda la biblioteca | ~150 GB a ese ritmo ⇒ **unas 4 h**; derivados ~0,5 MB por recurso ⇒ ~4–5 GB locales (solo vistas previas). |
+| Pruebas | 25/25 (nueva `test_previews_for_whole_pack_leave_no_extracted_copies`; la de Drive cubre también vistas previas con el ZIP solo en Drive). |

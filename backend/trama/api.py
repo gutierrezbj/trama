@@ -40,6 +40,8 @@ from .worker import (
     enqueue_import,
     enqueue_index_pack,
     enqueue_pack_upload,
+    enqueue_previews,
+    pending_preview_entries,
     enqueue_reanalyze,
     original_path_for_version,
 )
@@ -380,6 +382,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             tok = load_token(s) or {}
             out["folder_id"] = tok.get("folder_id")
             out["files"] = st.db.one("SELECT COUNT(*) AS n FROM locations WHERE kind = 'drive' AND status = 'available'")["n"]
+            out["packs"] = st.db.one("SELECT COUNT(*) AS n FROM packs WHERE drive_verified_at IS NOT NULL")["n"]
             if probe:
                 client = None
                 try:
@@ -698,6 +701,35 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             out.append({"pack_id": pack["id"], "label": pack["label"], "job_id": job_id})
         st.worker.notify()
         return {"packs": out}
+
+    @app.get("/api/packs/previews")
+    def packs_previews_status(st: AppState = Depends(S)):
+        """Cuántos recursos de packs tienen ya vista previa y el trabajo en curso, si lo hay."""
+        pending = st.db.one(
+            "SELECT COUNT(*) AS n FROM pack_entries pe JOIN asset_versions v ON v.id = pe.version_id "
+            "WHERE pe.status = 'archived' AND pe.media_kind IN ('video','audio','image') AND v.analysis_status = 'pending'"
+        )["n"]
+        total = st.db.one("SELECT COUNT(*) AS n FROM pack_entries WHERE media_kind IN ('video','audio','image') AND status != 'unsafe'")["n"]
+        jobs = st.db.query("SELECT status, message, progress FROM jobs WHERE kind = 'preview_pack' AND status IN ('queued','running') ORDER BY status DESC, created_at")
+        running = next((dict(j) for j in jobs if j["status"] == "running"), None)
+        return {"pending": pending, "total": total, "packs_queued": len(jobs), "running": running}
+
+    @app.post("/api/packs/previews", status_code=202)
+    def packs_previews_all(st: AppState = Depends(S)):
+        """Encola vistas previas para todos los packs con recursos sin analizar (ZIP local o en Drive)."""
+        packs_with_pending = sorted({e["pack_id"] for e in pending_preview_entries(st.db)})
+        queued = unreachable = 0
+        for pack_id in packs_with_pending:
+            p = dict(st.db.one("SELECT * FROM packs WHERE id = ?", (pack_id,)))
+            root = st.settings.source_for_id(p["source_id"])
+            local = bool(root and (root / Path(*p["rel_path"].split("/"))).is_file())
+            if not local and not p.get("drive_verified_at"):
+                unreachable += 1
+                continue
+            if enqueue_previews(st.db, pack_id):
+                queued += 1
+        st.worker.notify()
+        return {"queued": queued, "unreachable": unreachable}
 
     @app.get("/api/packs/{pack_id}")
     def get_pack(pack_id: str, depth: int = Query(3, ge=1, le=6), st: AppState = Depends(S)):

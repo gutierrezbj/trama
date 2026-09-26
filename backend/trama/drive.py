@@ -316,12 +316,15 @@ class RemoteFile:
     solo en Drive y extraer una entrada sin descargar el ZIP completo."""
 
     BLOCK = 1024 * 1024
+    MAX_BLOCK = 32 * 1024 * 1024  # lectura anticipada máxima en lecturas secuenciales
 
     def __init__(self, client: "DriveClient", file_id: str, size: int):
         self.client, self.file_id, self.size = client, file_id, size
         self.pos = 0
         self._buf_start, self._buf = 0, b""
+        self._block = self.BLOCK
         self.bytes_fetched = 0
+        self.requests = 0
 
     def readable(self) -> bool:
         return True
@@ -346,6 +349,7 @@ class RemoteFile:
             raise DriveError(f"Lectura por rango rechazada: {r.status_code}")
         data = r.content if r.status_code == 206 else r.content[start:end + 1]
         self.bytes_fetched += len(data)
+        self.requests += 1
         return data
 
     def read(self, n: int = -1) -> bytes:
@@ -354,16 +358,26 @@ class RemoteFile:
         if n is None or n < 0:
             n = self.size - self.pos
         n = min(n, self.size - self.pos)
+        out = bytearray()
         off = self.pos - self._buf_start
-        if 0 <= off and off + n <= len(self._buf):
-            data = self._buf[off:off + n]
-        elif n >= self.BLOCK:
-            data = self._fetch(self.pos, n)
+        if 0 <= off < len(self._buf):
+            # Primero lo que ya está en el búfer; nunca se vuelve a pedir.
+            chunk = self._buf[off:off + n]
+            out += chunk
+            self.pos += len(chunk)
+            n -= len(chunk)
+            sequential = True
         else:
-            self._buf_start, self._buf = self.pos, self._fetch(self.pos, self.BLOCK)
-            data = self._buf[:n]
-        self.pos += len(data)
-        return data
+            sequential = bool(self._buf) and off == len(self._buf)
+        if n > 0:
+            # Lectura secuencial: el bloque se dobla hasta MAX_BLOCK, así una entrada grande viaja en
+            # pocas peticiones. Un salto (índice, cabeceras locales) vuelve a 1 MB.
+            self._block = min(self._block * 2, self.MAX_BLOCK) if sequential else self.BLOCK
+            self._buf_start, self._buf = self.pos, self._fetch(self.pos, max(n, self._block))
+            chunk = self._buf[:n]
+            out += chunk
+            self.pos += len(chunk)
+        return bytes(out)
 
     def close(self) -> None:
         self.client.close()

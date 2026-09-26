@@ -262,11 +262,11 @@ export function Inspector(props: Props) {
         <div className="actions">
           <div className="menu">
             <button type="button" className="btn primary block" aria-haspopup="menu" aria-expanded={menu === "selection"} onClick={() => setMenu(menu === "selection" ? "" : "selection")}>
-              <IconPlus />Añadir a selección
+              <IconPlus />Guardar en proyecto
             </button>
             {menu === "selection" && (
               <div className="menu-list up" role="menu" style={{ left: 0, right: 0 }}>
-                {selections.length === 0 && <div className="tiny" style={{ padding: "6px 12px" }}>Aún no hay selecciones. Crea una:</div>}
+                {selections.length === 0 && <div className="tiny" style={{ padding: "6px 12px" }}>Aún no hay proyectos. Crea uno:</div>}
                 {selections.map((sel) => {
                   const inside = asset.in_selections.includes(sel.id);
                   return (
@@ -294,16 +294,16 @@ export function Inspector(props: Props) {
                   setMenu("");
                   await load(true);
                   props.onSelectionsChanged();
-                  setToast(`Selección «${name}» creada`);
+                  setToast(`Proyecto «${name}» creado`);
                 }}>
-                  <input className="input" placeholder="Nueva selección…" aria-label="Nombre de la nueva selección" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                  <input className="input" placeholder="Nuevo proyecto…" aria-label="Nombre del nuevo proyecto" value={newName} onChange={(e) => setNewName(e.target.value)} />
                   <button type="submit" className="btn small">Crear</button>
                 </form>
               </div>
             )}
           </div>
           {asset.in_selections.length > 0 && (
-            <div className="tiny">En {asset.in_selections.length === 1 ? "la selección" : "las selecciones"}: {asset.in_selections.map((id) => {
+            <div className="tiny">En {asset.in_selections.length === 1 ? "el proyecto" : "los proyectos"}: {asset.in_selections.map((id) => {
               const sel = selections.find((x) => x.id === id);
               return <button key={id} type="button" className="btn ghost small" onClick={() => props.onOpenSelection(id)}>{sel?.name ?? "…"}</button>;
             })}</div>
