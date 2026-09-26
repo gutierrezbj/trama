@@ -445,3 +445,40 @@ def test_extract_entry_from_zip_only_in_drive(drive_env):
     assert r.status_code == 202 and r.json()["entries"] >= 1
     wait_idle(client)
     assert client.get(f"/api/packs/{pack_id}").json()["extracted"] >= 2
+
+
+def test_remote_file_reads_sequential_entry_without_refetching():
+    """Una entrada grande de un ZIP remoto viaja en pocas peticiones y sin volver a bajar bytes."""
+    import io
+    import os
+    import zipfile
+
+    from trama.drive import RemoteFile
+
+    payload = os.urandom(6 * 1024 * 1024)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("otra.txt", b"x" * 1000)
+        z.writestr("clip.mov", payload)
+    blob = buf.getvalue()
+
+    class Resp:
+        def __init__(self, content):
+            self.status_code, self.content = 206, content
+
+    class Client:
+        def _api(self, method, path, params=None, headers=None):
+            start, end = map(int, headers["Range"].removeprefix("bytes=").split("-"))
+            return Resp(blob[start:end + 1])
+
+        def close(self):
+            pass
+
+    rf = RemoteFile(Client(), "id", len(blob))
+    with zipfile.ZipFile(rf) as z:
+        rf.requests = rf.bytes_fetched = 0
+        with z.open("clip.mov") as f:
+            data = b"".join(iter(lambda: f.read(64 * 1024), b""))
+    assert data == payload
+    assert rf.requests <= 6
+    assert rf.bytes_fetched <= len(blob) * 1.5

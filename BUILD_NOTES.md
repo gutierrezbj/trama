@@ -210,3 +210,16 @@ Corregido en pruebas reales: `drive-verify` elegía cualquier ubicación de Driv
 
 ## Pendiente (con OK explícito del propietario)
 - Borrar los ZIP locales de `Descargas\Pack Edicion` **solo cuando los 72 estén verificados en Drive**. Irreversible; no se hace automáticamente.
+
+## Cierre de la subida y prueba sin ZIP locales (2026-09-26)
+- Subida terminada: **72/72 packs verificados por md5 en Drive** (150 GB, 0 fallos). Ritmo real ~8 MB/s: menos de 4 h.
+- Prueba «solo nube»: la carpeta local de packs se aparta (renombrada, no borrada) para que TRAMA no la encuentre. Extracciones reales de packs elegidos al azar: todas con tamaño exacto, SHA-256 calculado y previsualizaciones generadas.
+- **Corregido `RemoteFile`**: una lectura que empezaba dentro del búfer y acababa fuera descartaba el búfer y volvía a pedir los mismos bytes; además el bloque era fijo de 1 MB. Ahora sirve primero lo que ya tiene y, en lecturas secuenciales, el bloque se dobla hasta 32 MB (un salto vuelve a 1 MB).
+
+| Entrada de ~152 MB desde Drive | Peticiones | Bytes bajados | Velocidad |
+|---|---|---|---|
+| Antes | 287 | 302 MB | 1,1 MB/s |
+| Después | 9 | 167 MB | **21 MB/s** |
+
+- Pruebas: 24/24 (nueva `test_remote_file_reads_sequential_entry_without_refetching`).
+- Borrado de los ZIP locales: sigue pendiente del OK del propietario tras probar el uso real desde Drive.
