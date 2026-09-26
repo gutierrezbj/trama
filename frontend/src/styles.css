@@ -50,7 +50,7 @@ a { color: inherit; }
 /* ---------- sidebar ---------- */
 .sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--line); padding: 18px 16px; gap: 6px; background: var(--bg); overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 18px; }
-.brand-mark { width: 26px; height: 26px; border: 3px solid var(--accent); border-radius: 5px; flex: none; }
+.brand-mark { width: 44px; height: auto; flex: none; object-fit: contain; }
 .brand-name { font-size: 20px; font-weight: 600; letter-spacing: 0.04em; }
 .brand-sub { display: block; font-size: 11px; color: var(--text-2); letter-spacing: 0.08em; text-transform: uppercase; }
 .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px; border: 0; border-radius: var(--r); background: transparent; color: var(--text-2); text-align: left; }

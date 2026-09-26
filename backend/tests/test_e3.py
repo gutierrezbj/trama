@@ -183,12 +183,21 @@ class FakeDrive:
         if path == "/drive/v3/about":
             return httpx.Response(200, json={"user": {"emailAddress": "prueba@example.com"}, "storageQuota": {"usage": "10", "limit": "100"}})
         if path == "/drive/v3/files" and method == "GET":
-            return httpx.Response(200, json={"files": [f for f in self.files.values() if f.get("mimeType") == "application/vnd.google-apps.folder"]})
+            # Como Google: filtra carpetas por nombre y por carpeta padre según la consulta `q`.
+            q = url.params.get("q", "")
+            name = re.search(r"name = '((?:[^'\\]|\\.)*)'", q)
+            parent = re.search(r"'([^']+)' in parents", q)
+            folders = [f for f in self.files.values() if f.get("mimeType") == "application/vnd.google-apps.folder"]
+            if name:
+                folders = [f for f in folders if f["name"] == name.group(1).replace("\\'", "'")]
+            if parent:
+                folders = [f for f in folders if f.get("parent", "root") == parent.group(1)]
+            return httpx.Response(200, json={"files": [{"id": f["id"], "name": f["name"]} for f in folders]})
         if path == "/drive/v3/files" and method == "POST":
             meta = json.loads(request.content)
             self.n += 1
             fid = f"folder{self.n}"
-            self.files[fid] = {"id": fid, "name": meta["name"], "mimeType": meta["mimeType"], "trashed": False}
+            self.files[fid] = {"id": fid, "name": meta["name"], "mimeType": meta["mimeType"], "trashed": False, "parent": (meta.get("parents") or ["root"])[0]}
             return httpx.Response(200, json={"id": fid})
         if path == "/upload/drive/v3/files" and method == "POST":
             meta = json.loads(request.content)
@@ -358,3 +367,81 @@ def test_drive_not_configured_is_explicit(env):
     a = client.get("/api/assets").json()["items"][0]
     r = client.post(f"/api/assets/{a['id']}/drive-upload")
     assert r.status_code == 409 and "client_secret" in r.json()["detail"]
+
+
+def test_pack_zip_uploads_to_drive_resumable_and_verified(drive_env):
+    """Un pack ZIP sube tal cual a TRAMA/Packs, reanuda tras una interrupción y queda verificado por md5."""
+    import zipfile as _zip
+
+    client, fake, files, root = drive_env["client"], drive_env["fake"], drive_env["files"], drive_env["root"]
+    url = client.post("/api/drive/auth/start").json()["url"]
+    state = re.search(r"state=([^&]+)", url).group(1)
+    client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)
+
+    (root / "packs").mkdir()
+    zpath = root / "packs" / "compra.zip"
+    with _zip.ZipFile(zpath, "w", _zip.ZIP_STORED) as zf:
+        zf.write(files["alpha"], "VFX/humo.mov")
+        zf.write(files["opaque"], "Transiciones/barrido.mp4")
+    sid = client.get("/api/fs/sources").json()[0]["id"]
+    r = client.post("/api/packs/index", json={"source_id": sid, "path": "packs/compra.zip"})
+    pack_id = r.json()["packs"][0]["pack_id"]
+    wait_idle(client)
+
+    r = client.post("/api/packs/drive-upload-all")
+    assert r.status_code == 202 and r.json()["queued"] == 1 and r.json()["bytes"] == zpath.stat().st_size
+    wait_idle(client)
+    job = next(j for j in client.get("/api/jobs").json() if j["kind"] == "pack_upload")
+    assert job["status"] == "done", job
+    assert fake.fail_once_at_chunk is None, "debió producirse la interrupción simulada"
+    pack = client.get(f"/api/packs/{pack_id}").json()
+    assert pack["drive_file_id"] in fake.files and pack["drive_verified_at"]
+    assert fake.files[pack["drive_file_id"]]["data"] == zpath.read_bytes()          # ZIP idéntico byte a byte
+    assert pack["drive_md5"] == hashlib.md5(zpath.read_bytes()).hexdigest()
+    # Subcarpeta Packs dentro de TRAMA.
+    assert any(f.get("name") == "Packs" for f in fake.files.values())
+    # Idempotente: no se vuelve a subir.
+    assert client.post("/api/packs/drive-upload-all").json() == {"queued": 0, "already_in_drive": 1, "zip_missing": 0, "bytes": 0}
+    # El ZIP local no se toca.
+    assert zpath.is_file()
+
+
+def test_extract_entry_from_zip_only_in_drive(drive_env):
+    """Con el ZIP solo en Drive (copia local borrada), una entrada se extrae por rangos: bytes
+    exactos y sin descargar el ZIP completo."""
+    import zipfile as _zip
+
+    client, fake, files, root, settings = drive_env["client"], drive_env["fake"], drive_env["files"], drive_env["root"], drive_env["settings"]
+    url = client.post("/api/drive/auth/start").json()["url"]
+    state = re.search(r"state=([^&]+)", url).group(1)
+    client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)
+    (root / "packs").mkdir()
+    zpath = root / "packs" / "compra.zip"
+    relleno = root / "relleno.bin"
+    relleno.write_bytes(bytes(range(256)) * 4096)  # 1 MB que NO debe descargarse
+    with _zip.ZipFile(zpath, "w", _zip.ZIP_DEFLATED) as zf:
+        zf.write(relleno, "Otros/relleno.bin")
+        zf.write(files["audio"], "Audio/tono.wav")
+        zf.write(files["opaque"], "Otros/clip.mp4")
+        zf.write(relleno, "Otros/relleno2.bin")
+    sid = client.get("/api/fs/sources").json()[0]["id"]
+    pack_id = client.post("/api/packs/index", json={"source_id": sid, "path": "packs/compra.zip"}).json()["packs"][0]["pack_id"]
+    wait_idle(client)
+    client.post(f"/api/packs/{pack_id}/drive-upload")
+    wait_idle(client)
+    assert client.get(f"/api/packs/{pack_id}").json()["drive_verified_at"]
+
+    zpath.unlink()  # ya no hay copia local
+    tono = next(a for a in client.get("/api/assets", params={"pack_id": pack_id, "limit": 50}).json()["items"] if a["original_title"] == "tono.wav")
+    assert tono["archived"] is True and tono["extractable"] is True
+    r = client.get(f"/api/assets/{tono['id']}/original")
+    assert r.status_code == 200 and r.content == files["audio"].read_bytes()
+    wait_idle(client)
+    a = client.get(f"/api/assets/{tono['id']}").json()
+    assert a["available"] is True and a["version"]["identity_kind"] == "sha256"
+    assert a["preview"]["status"] == "ready" and a["waveform_url"]
+    # Extracción de carpeta entera desde Drive por el flujo normal.
+    r = client.post(f"/api/packs/{pack_id}/extract", json={"prefix": "Otros"})
+    assert r.status_code == 202 and r.json()["entries"] >= 1
+    wait_idle(client)
+    assert client.get(f"/api/packs/{pack_id}").json()["extracted"] >= 2

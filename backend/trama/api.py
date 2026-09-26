@@ -39,6 +39,7 @@ from .worker import (
     enqueue_extract,
     enqueue_import,
     enqueue_index_pack,
+    enqueue_pack_upload,
     enqueue_reanalyze,
     original_path_for_version,
 )
@@ -272,6 +273,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     db.migrate()
     worker = Worker(db, settings)
     worker.drive_transport = drive_transport  # type: ignore[attr-defined]
+    settings._drive_transport = drive_transport  # type: ignore[attr-defined]  (lectura remota de ZIP en pruebas)
     state = AppState(settings, db, worker, drive_transport)
     for root in settings.allowed_roots:
         if root.is_dir():
@@ -761,6 +763,36 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             raise HTTPException(404, "Pack no encontrado")
         n = release_entries(st.db, st.settings, pack_id, body.prefix, body.entry_ids)
         return {"released": n}
+
+    @app.post("/api/packs/drive-upload-all", status_code=202)
+    def packs_drive_upload_all(st: AppState = Depends(S)):
+        """Encola la subida a Drive de todos los packs cuyo ZIP está en este equipo y aún no están verificados en Drive."""
+        _require_drive(st)
+        queued = already = missing = 0
+        total_bytes = 0
+        for p in st.db.query("SELECT * FROM packs ORDER BY rel_path"):
+            p = dict(p)
+            if p.get("drive_file_id") and p.get("drive_verified_at"):
+                already += 1
+                continue
+            root = st.settings.source_for_id(p["source_id"])
+            if not root or not (root / Path(*p["rel_path"].split("/"))).is_file():
+                missing += 1
+                continue
+            if enqueue_pack_upload(st.db, p["id"]):
+                queued += 1
+                total_bytes += p["size"]
+        st.worker.notify()
+        return {"queued": queued, "already_in_drive": already, "zip_missing": missing, "bytes": total_bytes}
+
+    @app.post("/api/packs/{pack_id}/drive-upload", status_code=202)
+    def pack_drive_upload(pack_id: str, st: AppState = Depends(S)):
+        if st.db.one("SELECT 1 FROM packs WHERE id = ?", (pack_id,)) is None:
+            raise HTTPException(404, "Pack no encontrado")
+        _require_drive(st)
+        job_id = enqueue_pack_upload(st.db, pack_id)
+        st.worker.notify()
+        return {"job_id": job_id, "message": None if job_id else "Ya estaba en Drive"}
 
     @app.get("/api/packs/{pack_id}/inventory.csv")
     def pack_inventory(pack_id: str, st: AppState = Depends(S)):
