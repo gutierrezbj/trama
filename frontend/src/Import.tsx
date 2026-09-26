@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Config, type Import, type Job, type Pack, type PackFolder, formatBytes } from "./api";
 import { useAsync, useInterval } from "./hooks";
 import { IconBox, IconFolder } from "./icons";
+import { PreviewsBanner } from "./Previews";
 
 interface Props {
   config: Config | null;
@@ -61,7 +62,7 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
 
   return (
     <>
-      <div className="view-head"><h1>Incorporar</h1><p>Carpetas y packs ZIP dentro de las raíces permitidas. Los originales no se mueven ni se modifican; los ZIP se leen sin extraerlos hasta que tú lo pides.</p></div>
+      <div className="view-head"><h1>Fuentes y packs</h1><p>Aquí das de alta en TRAMA carpetas y packs ZIP. No es para el día a día: lo que ya está dado de alta se busca en Explorar. TRAMA nunca mueve ni modifica tus originales.</p></div>
       {config && !config.tools.ok && <div className="notice warn">FFmpeg no disponible: {config.tools.error}. Los archivos se catalogarán, pero sin análisis ni previews.</div>}
       <div className="import-grid">
         <div className="panel">
@@ -107,7 +108,7 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
               <div className="tiny">{browse.data ? `${browse.data.media_files} archivos multimedia sueltos en esta carpeta (más los de subcarpetas).` : ""}</div>
               {error && <div className="notice warn">{error}</div>}
               <div className="row" style={{ flexWrap: "wrap" }}>
-                <button type="button" className="btn primary" disabled={launching || !browse.data} onClick={start}>Incorporar carpeta «{crumbs[crumbs.length - 1] ?? source.label}»</button>
+                <button type="button" className="btn primary" disabled={launching || !browse.data} onClick={start}>Dar de alta la carpeta «{crumbs[crumbs.length - 1] ?? source.label}»</button>
                 {browse.data && browse.data.zips.some((z) => !z.pack_id) && (
                   <button type="button" className="btn" onClick={() => indexZips(path)}>Indexar los {browse.data.zips.filter((z) => !z.pack_id).length} ZIP sin indexar</button>
                 )}
@@ -134,6 +135,7 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
               </div>
             );
           })()}
+          <PreviewsBanner />
           {st && (
             <div className="storage">
               <div className="row between tiny"><span>Caché de extracción</span><span>{formatBytes(st.cache_bytes)} de {formatBytes(st.cache_max_bytes)}</span></div>
@@ -201,7 +203,7 @@ export function PackDetail({ id, onBack, onExplore }: { id: string; onBack: () =
   return (
     <>
       <div className="detail-head">
-        <button type="button" className="btn ghost small" onClick={onBack}>← Incorporar</button>
+        <button type="button" className="btn ghost small" onClick={onBack}>← Fuentes y packs</button>
         <h1>
           <input aria-label="Nombre del pack" value={label ?? p.label} size={Math.max(12, (label ?? p.label).length + 2)} onChange={(e) => setLabel(e.target.value)}
             onBlur={async () => { if (label && label.trim() && label !== p.label) { await api.patchPack(p.id, label.trim()); pack.reload(true); } setLabel(null); }}

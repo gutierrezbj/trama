@@ -13,13 +13,13 @@ export function SelectionsList({ onOpen, refreshKey }: ListProps) {
   const [name, setName] = useState("");
   return (
     <>
-      <div className="view-head"><h1>Mis selecciones</h1><p>Reúne recursos para una producción sin duplicar bytes.</p></div>
+      <div className="view-head"><h1>Proyectos</h1><p>Reúne lo que vas a usar en cada vídeo, sin duplicar archivos.</p></div>
       <form className="create-row" onSubmit={async (e) => { e.preventDefault(); if (!name.trim()) return; const s = await api.createSelection(name.trim()); setName(""); list.reload(); onOpen(s.id); }}>
-        <input className="input" placeholder="Nueva selección…" aria-label="Nombre de la nueva selección" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="input" placeholder="Nuevo proyecto…" aria-label="Nombre del nuevo proyecto" value={name} onChange={(e) => setName(e.target.value)} />
         <button type="submit" className="btn primary" disabled={!name.trim()}>Crear</button>
       </form>
       {list.error && <div className="notice warn">{list.error}</div>}
-      {list.data && list.data.length === 0 && <div className="empty"><h2>Sin selecciones</h2><p>Crea una aquí o desde «Añadir a selección» en la ficha de un recurso.</p></div>}
+      {list.data && list.data.length === 0 && <div className="empty"><h2>Sin proyectos</h2><p>Crea uno aquí o desde «Guardar en proyecto» en la ficha de un recurso.</p></div>}
       <div className="cards">
         {(list.data ?? []).map((s) => (
           <button type="button" key={s.id} className="list-card" onClick={() => onOpen(s.id)}>
@@ -61,20 +61,20 @@ export function SelectionDetail(props: DetailProps) {
   return (
     <>
       <div className="detail-head">
-        <button type="button" className="btn ghost small" onClick={props.onBack}>← Selecciones</button>
+        <button type="button" className="btn ghost small" onClick={props.onBack}>← Proyectos</button>
         <h1>
-          <input aria-label="Nombre de la selección" value={name ?? s?.name ?? ""} onChange={(e) => setName(e.target.value)}
+          <input aria-label="Nombre del proyecto" value={name ?? s?.name ?? ""} onChange={(e) => setName(e.target.value)}
             onBlur={async () => { if (name !== null && s && name.trim() && name !== s.name) { await api.patchSelection(s.id, { name: name.trim() }); props.onChanged(); sel.reload(true); } setName(null); }}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         </h1>
         <span className="muted">{s?.items.length ?? 0} {s?.items.length === 1 ? "recurso" : "recursos"}</span>
-        <button type="button" className="btn small" style={{ marginLeft: "auto" }} onClick={async () => { try { const r = await api.driveUploadSelection(props.id); setMsg(`${r.queued} subidas a Drive en cola${r.skipped_offline ? `, ${r.skipped_offline} omitidas (original no disponible aquí)` : ""}`); } catch (e) { setMsg((e as Error).message); } }}>Copiar la selección a Drive</button>
-        <button type="button" className="btn ghost small danger" onClick={async () => { if (s && window.confirm(`¿Eliminar la selección «${s.name}»? Los recursos y sus originales no se borran.`)) { await api.deleteSelection(s.id); props.onChanged(); props.onBack(); } }}>Eliminar selección</button>
+        <button type="button" className="btn small" style={{ marginLeft: "auto" }} onClick={async () => { try { const r = await api.driveUploadSelection(props.id); setMsg(`${r.queued} subidas a Drive en cola${r.skipped_offline ? `, ${r.skipped_offline} omitidas (original no disponible aquí)` : ""}`); } catch (e) { setMsg((e as Error).message); } }}>Copiar el proyecto a Drive</button>
+        <button type="button" className="btn ghost small danger" onClick={async () => { if (s && window.confirm(`¿Eliminar el proyecto «${s.name}»? Los recursos y sus originales no se borran.`)) { await api.deleteSelection(s.id); props.onChanged(); props.onBack(); } }}>Eliminar proyecto</button>
       </div>
-      <textarea className="notes" aria-label="Notas de la selección" placeholder="Notas de producción…" value={notes ?? s?.notes ?? ""} onChange={(e) => setNotes(e.target.value)}
+      <textarea className="notes" aria-label="Notas del proyecto" placeholder="Notas de producción…" value={notes ?? s?.notes ?? ""} onChange={(e) => setNotes(e.target.value)}
         onBlur={async () => { if (notes !== null && s && notes !== s.notes) { await api.patchSelection(s.id, { notes }); sel.reload(true); } setNotes(null); }} />
       {msg && <div className="notice" role="status" style={{ marginBottom: 12 }}>{msg}</div>}
-      {s && s.items.length === 0 && <div className="empty"><h2>Selección vacía</h2><p>Añade recursos desde «Añadir a selección» en la ficha.</p></div>}
+      {s && s.items.length === 0 && <div className="empty"><h2>Proyecto vacío</h2><p>Añade recursos desde «Guardar en proyecto» en la ficha.</p></div>}
       <div className="sel-items">
         {(s?.items ?? []).map((a, i) => (
           <div className="sel-item" key={a.id} aria-selected={a.id === props.selectedId}>

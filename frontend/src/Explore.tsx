@@ -1,3 +1,4 @@
+import { PreviewsBanner } from "./Previews";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type Asset, type AssetFilters, type Pack, CATEGORY_LABELS } from "./api";
 import { AssetCard } from "./AssetCard";
@@ -195,6 +196,7 @@ export function Explore(props: Props) {
         <h1>{props.title}</h1>
         {props.subtitle && <p>{props.subtitle}</p>}
       </div>
+      {showFilters && <PreviewsBanner />}
       {showFilters && (
         <div className="filters" role="group" aria-label="Filtros">
           <button type="button" className="chip" aria-pressed={!activeFilters} onClick={clear}>Todos</button>
@@ -203,6 +205,7 @@ export function Explore(props: Props) {
           <button type="button" className="chip" aria-pressed={state.short} onClick={() => set({ short: !state.short })}>Menos de 5 s</button>
           <button type="button" className="chip" aria-pressed={state.availability === "available"} onClick={() => set({ availability: state.availability === "available" ? "" : "available" })}>Listos</button>
           <button type="button" className="chip chip-icon" aria-pressed={more} aria-expanded={more} aria-label="Más filtros" title="Más filtros" onClick={() => setMore(!more)}><IconSliders /></button>
+          {activeFilters && <button type="button" className="chip chip-clear" onClick={clear}>✕ Limpiar filtros</button>}
           <span className="count" aria-live="polite">{total === null ? "Cargando…" : `${total} ${total === 1 ? "recurso" : "recursos"}`}</span>
         </div>
       )}

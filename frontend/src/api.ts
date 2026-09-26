@@ -46,6 +46,13 @@ export interface Location {
   unsafe_reason?: string | null;
 }
 
+export interface PreviewsStatus {
+  pending: number;
+  total: number;
+  packs_queued: number;
+  running: { status: string; message: string | null; progress: number } | null;
+}
+
 export interface Pack {
   id: string;
   source_id: string;
@@ -159,7 +166,7 @@ export interface Named {
 
 export interface Job {
   id: string;
-  kind: "import" | "analyze" | "derive" | "index_pack" | "extract" | "drive_upload" | "backup" | "pack_upload";
+  kind: "import" | "analyze" | "derive" | "index_pack" | "extract" | "drive_upload" | "backup" | "pack_upload" | "preview_pack";
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   attempts: number;
   progress: number;
@@ -229,6 +236,7 @@ export interface DriveStatus {
   account: string | null;
   folder_id: string | null;
   files?: number;
+  packs?: number;
   quota?: { usage: number; limit: number | null };
   error: string | null;
 }
@@ -350,6 +358,8 @@ export const api = {
   extractPack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ job_id: string | null; entries: number; bytes: number; message?: string }>(`/api/packs/${id}/extract`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
   packDriveUpload: (id: string) => request<{ job_id: string | null; message: string | null }>(`/api/packs/${id}/drive-upload`, { method: "POST" }),
+  previewsStatus: () => request<PreviewsStatus>("/api/packs/previews"),
+  previewsAll: () => request<{ queued: number; unreachable: number }>("/api/packs/previews", { method: "POST" }),
   packsDriveUploadAll: () => request<{ queued: number; already_in_drive: number; zip_missing: number; bytes: number }>("/api/packs/drive-upload-all", { method: "POST" }),
   releasePack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ released: number }>(`/api/packs/${id}/release`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),

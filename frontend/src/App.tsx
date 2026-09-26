@@ -168,7 +168,7 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
           onState={setExplore}
           fixed={view.category ? { category: [view.category] } : undefined}
           {...exploreProps}
-          emptyHint="Todavía no hay recursos. Empieza por «Incorporar» en la barra lateral."
+          emptyHint="Todavía no hay recursos. Empieza por «Fuentes y packs», en Ajustes."
         />
       );
   }

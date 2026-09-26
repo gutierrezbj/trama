@@ -29,7 +29,7 @@ export function Sidebar({ view, stats, categories, open, onNavigate }: Props) {
       </div>
       <button type="button" className="nav-item" aria-current={is("explore")} onClick={() => onNavigate({ name: "explore" })}><IconSearch />Explorar</button>
       <button type="button" className="nav-item" aria-current={view.name === "collections" ? "page" : undefined} onClick={() => onNavigate({ name: "collections" })}><IconFolder />Colecciones</button>
-      <button type="button" className="nav-item" aria-current={view.name === "selections" ? "page" : undefined} onClick={() => onNavigate({ name: "selections" })}><IconSelection />Mis selecciones</button>
+      <button type="button" className="nav-item" aria-current={view.name === "selections" ? "page" : undefined} onClick={() => onNavigate({ name: "selections" })}><IconSelection />Proyectos</button>
       <button type="button" className="nav-item" aria-current={is("favorites")} onClick={() => onNavigate({ name: "favorites" })}><IconHeart />Favoritos{stats && stats.favorites > 0 && <span className="count">{stats.favorites}</span>}</button>
 
       <div className="nav-section">Recursos</div>
@@ -46,8 +46,9 @@ export function Sidebar({ view, stats, categories, open, onNavigate }: Props) {
       })}
 
       <div className="sidebar-bottom">
-        <button type="button" className="nav-item" aria-current={view.name === "copias" ? "page" : undefined} onClick={() => onNavigate({ name: "copias" })}><IconCloud />Copias y Drive</button>
-        <button type="button" className="btn-import" aria-current={view.name === "import" ? "page" : undefined} onClick={() => onNavigate({ name: "import" })}><IconPlus />Incorporar</button>
+        <div className="nav-section">Ajustes</div>
+        <button type="button" className="nav-item" aria-current={view.name === "import" ? "page" : undefined} onClick={() => onNavigate({ name: "import" })}><IconPlus />Fuentes y packs</button>
+        <button type="button" className="nav-item" aria-current={view.name === "copias" ? "page" : undefined} onClick={() => onNavigate({ name: "copias" })}><IconCloud />Drive y copias</button>
       </div>
     </nav>
   );

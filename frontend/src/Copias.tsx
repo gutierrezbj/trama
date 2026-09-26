@@ -37,7 +37,7 @@ export function CopiasView({ config, busy, notice }: Props) {
 
   return (
     <>
-      <div className="view-head"><h1>Copias y Drive</h1><p>Snapshots del catálogo con restauración ensayada, y copia de originales en una carpeta privada de tu Google Drive.</p></div>
+      <div className="view-head"><h1>Drive y copias</h1><p>Mantenimiento, no hace falta tocarlo a diario: tu conexión con Google Drive y las copias de seguridad del catálogo (fichas, etiquetas y vistas previas).</p></div>
       {msg && <div className="notice" role="status" style={{ marginBottom: 14 }}>{msg}</div>}
       <div className="import-grid">
         <div className="panel">
@@ -62,7 +62,7 @@ export function CopiasView({ config, busy, notice }: Props) {
           )}
           {d && d.connected && (
             <div className="notice ok">
-              <strong>Conectado</strong>{d.account ? ` como ${d.account}` : ""} · carpeta «{d.folder_name}» · {d.files ?? 0} originales subidos
+              <strong>Conectado</strong>{d.account ? ` como ${d.account}` : ""} · carpeta «{d.folder_name}» · {d.packs ?? 0} packs y {d.files ?? 0} originales en tu Drive
               {d.quota && <div className="tiny">Uso de Drive: {formatBytes(d.quota.usage)}{d.quota.limit ? ` de ${formatBytes(d.quota.limit)}` : ""}</div>}
               {d.error && <div className="err" style={{ marginTop: 6 }}>{d.error}</div>}
               <div style={{ marginTop: 8 }} className="row">
@@ -70,7 +70,7 @@ export function CopiasView({ config, busy, notice }: Props) {
               </div>
             </div>
           )}
-          <div className="tiny">Subir originales: desde la ficha de un recurso («Copiar a Drive») o desde una selección («Copiar la selección a Drive»). Cada subida es reanudable y se verifica por md5 antes de darse por buena. Un original que solo esté en un ordenador apagado no puede subirse desde el servidor: la ficha lo indica.</div>
+          <div className="tiny">Subir originales: desde la ficha de un recurso («Copiar a Drive») o desde un proyecto («Copiar el proyecto a Drive»). Cada subida es reanudable y se verifica por md5 antes de darse por buena. Un original que solo esté en un ordenador apagado no puede subirse desde el servidor: la ficha lo indica.</div>
         </div>
 
         <div className="panel">

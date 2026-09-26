@@ -440,6 +440,12 @@ def test_extract_entry_from_zip_only_in_drive(drive_env):
     a = client.get(f"/api/assets/{tono['id']}").json()
     assert a["available"] is True and a["version"]["identity_kind"] == "sha256"
     assert a["preview"]["status"] == "ready" and a["waveform_url"]
+    # Vistas previas del resto del pack desde Drive, sin dejar copias extraídas.
+    assert client.post("/api/packs/previews").json() == {"queued": 1, "unreachable": 0}
+    wait_idle(client)
+    assert client.get("/api/packs/previews").json()["pending"] == 0
+    clip = next(a for a in client.get("/api/assets", params={"pack_id": pack_id, "limit": 50}).json()["items"] if a["original_title"] == "clip.mp4")
+    assert clip["archived"] is True and clip["preview"]["status"] == "ready"
     # Extracción de carpeta entera desde Drive por el flujo normal.
     r = client.post(f"/api/packs/{pack_id}/extract", json={"prefix": "Otros"})
     assert r.status_code == 202 and r.json()["entries"] >= 1
