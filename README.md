@@ -4,9 +4,9 @@ Tu biblioteca de producción. Un producto de JRGB.
 TRAMA convierte un repositorio de recursos audiovisuales en una biblioteca visual: descubrir, entender, seleccionar y obtener el original.
 
 ## Estado
-E1 (piloto local), E2 (pack completo en ZIP) y E3 (acceso privado, Drive y respaldos) implementados y verificados en el equipo del propietario: ver [BUILD_NOTES.md](BUILD_NOTES.md).
-Destino previsto: https://trama.jrgblanco.com. No desplegado: el plan está en [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md) y requiere encargo específico.
-Drive: adaptador implementado y probado contra un simulador; queda pendiente crear el cliente OAuth y conectarlo. Integración con Escenda (E4) no implementada.
+E1 a E3d implementados y verificados en el equipo del propietario: ver [BUILD_NOTES.md](BUILD_NOTES.md). Google Drive conectado de verdad; los packs se leen desde Drive.
+Destino: https://trama.jrgblanco.com en el Servidor 1 (offset +260). Preparado en [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md) (Docker + nginx + Certbot). Integración con Escenda (E4) no implementada.
+Contexto para agentes: [CLAUDE.md](CLAUDE.md), [AGENTS.md](AGENTS.md), [DESIGN.md](DESIGN.md), [tasks/lessons.md](tasks/lessons.md).
 
 ## Arranque rápido (Windows)
 Requisitos: Python 3.13 y Node 22 en el PATH. FFmpeg no es necesario: se descarga un binario estático dentro del entorno virtual.

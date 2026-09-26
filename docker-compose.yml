@@ -1,0 +1,17 @@
+# Despliegue JRGB: offset +260 (Catálogo de Infraestructura). Solo 127.0.0.1; nginx + Certbot delante.
+services:
+  app:
+    build: .
+    container_name: trama-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRAMA_DATA_DIR: /data
+      TRAMA_HOST: 0.0.0.0
+      TRAMA_PORT: "8765"
+    ports:
+      - "127.0.0.1:3260:8765"
+    volumes:
+      - trama-data:/data
+volumes:
+  trama-data:

@@ -1,52 +1,42 @@
-# Despliegue privado (plan, no ejecutado)
+# Despliegue en el Servidor 1 (estándar JRGB)
 
-`AGENTS.md` prohíbe desplegar o tocar DNS sin encargo específico. Este documento deja preparado el
-procedimiento para que el despliegue en `trama.jrgblanco.com` sea un encargo corto y reproducible.
-Nada de lo descrito aquí se ha ejecutado.
+Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el **Servidor 1**
+(`72.62.41.234`), offset **+260** reservado en el Catálogo de Infraestructura JRGB, dominio
+`trama.jrgblanco.com` (registro A creado por el propietario en Hostinger el 26 sep 2026).
 
 ## Modelo
-- Un solo proceso `python -m trama serve` ligado a `127.0.0.1:8765` en el servidor (VPS Linux).
-- Proxy inverso con HTTPS delante (Caddy obtiene el certificado solo). Solo el proxy escucha en 443.
-- `TRAMA_AUTH_MODE=password` + `TRAMA_COOKIE_SECURE=1`: nada de la API (catálogo, previews,
-  originales) se sirve sin sesión. La interfaz estática sí, y muestra la pantalla de acceso.
-- Los datos viven en `/var/lib/trama` (catálogo, derivados, caché, respaldos, token de Drive).
-- Los originales locales del PC **no** están en el servidor: la ficha lo dice explícitamente
-  («fuente offline»). El servidor sirve previews y, si el recurso se copió a Drive, el original en
-  streaming desde Drive. Para catalogar packs en el servidor habría que subir los ZIP a una raíz
-  permitida del propio servidor (fuera del alcance de este plan).
+- Un contenedor `trama-app` (interfaz compilada + API + worker + FFmpeg estático), publicado solo en
+  `127.0.0.1:3260` → 8765. Nunca en `0.0.0.0`.
+- nginx del servidor con HTTPS de Let's Encrypt (Certbot) delante: `deploy/nginx-trama.jrgblanco.com.conf`.
+- `TRAMA_AUTH_MODE=password` + `TRAMA_COOKIE_SECURE=1`: nada del catálogo, vistas previas ni
+  originales sin sesión. `python -m trama serve` se niega a escuchar fuera de loopback sin contraseña.
+- Datos en el volumen `trama-data` (`/data`): catálogo, derivados, caché de extracción (máx. 5 GB),
+  respaldos y credenciales de Drive.
+- Originales: los packs se leen del Google Drive del propietario por rangos. Las carpetas locales del
+  PC quedan «offline» en el servidor (la ficha lo dice).
 
-## Pasos previstos
-1. Sistema: Debian/Ubuntu con Python 3.12+, Node solo para compilar la interfaz (o copiar `frontend/dist` ya compilado). FFmpeg: `apt install ffmpeg` o el estático del venv.
-2. Usuario de servicio `trama`, repo en `/opt/trama`, venv en `/opt/trama/backend/.venv`, datos en `/var/lib/trama` (`TRAMA_DATA_DIR`).
-3. `.env` en `/opt/trama/.env` con: `TRAMA_HOST=127.0.0.1`, `TRAMA_PORT=8765`, `TRAMA_AUTH_MODE=password`, `TRAMA_PASSWORD_HASH=…` (generado con `python -m trama set-password`), `TRAMA_COOKIE_SECURE=1`, `TRAMA_DATA_DIR=/var/lib/trama`, `TRAMA_ALLOWED_ROOTS=/srv/trama-fuentes` (vacía o con lo que se decida subir), `TRAMA_DRIVE_CLIENT_FILE=/var/lib/trama/drive/client_secret.json`, `TRAMA_DRIVE_REDIRECT_URI=https://trama.jrgblanco.com/api/drive/auth/callback`.
-4. systemd:
-   ```ini
-   [Unit]
-   Description=TRAMA
-   After=network.target
-   [Service]
-   User=trama
-   WorkingDirectory=/opt/trama/backend
-   EnvironmentFile=/opt/trama/.env
-   ExecStart=/opt/trama/backend/.venv/bin/python -m trama serve
-   Restart=on-failure
-   [Install]
-   WantedBy=multi-user.target
-   ```
-5. Caddy (`/etc/caddy/Caddyfile`):
-   ```
-   trama.jrgblanco.com {
-       reverse_proxy 127.0.0.1:8765
-       encode gzip
-       header { X-Frame-Options DENY; Referrer-Policy no-referrer }
-   }
-   ```
-   DNS: registro A/AAAA de `trama.jrgblanco.com` al VPS (encargo específico).
-6. Google Cloud: cliente OAuth «Aplicación web» con el URI de redirección anterior; `client_secret.json` al servidor con permisos 600. Conectar desde «Copias y Drive».
-7. Respaldos: `python -m trama backup` en un cron diario (o «Crear y subir a Drive» desde la interfaz); `TRAMA_BACKUP_KEEP` según espacio. Restauración: parar el servicio, `python -m trama verify-backup <carpeta>`, `python -m trama restore <carpeta>`, arrancar.
-8. Migrar el catálogo del PC al servidor: crear snapshot en el PC, copiarlo (scp) y restaurarlo en `/var/lib/trama`. Las ubicaciones locales del PC quedarán «offline» en el servidor; las de Drive seguirán disponibles.
+## Pasos
+1. **Código**: `git clone https://github.com/gutierrezbj/trama /opt/apps/trama`.
+2. **Configuración**: copiar `deploy/env.servidor.example` a `/opt/apps/trama/.env` (permisos 600) y
+   rellenar `TRAMA_PASSWORD_HASH` (generado con `python -m trama set-password`).
+3. **Arranque**: `docker compose up -d --build` en `/opt/apps/trama`. Comprobar
+   `docker ps | grep trama-app` (healthy) y `curl -s 127.0.0.1:3260/api/auth/status`.
+4. **Catálogo**: en el PC, `python -m trama backup` (snapshot con catálogo y vistas previas);
+   copiarlo al servidor y restaurarlo con el contenedor parado:
+   `docker compose run --rm app python -m trama restore /data/import/<snapshot> --yes`.
+5. **Drive**: copiar `client_secret.json` y `token.json` a `/data/drive/` (permisos 600). El token
+   actual se renueva solo; para volver a conectar desde el servidor hace falta un cliente OAuth
+   «Aplicación web» con el URI `https://trama.jrgblanco.com/api/drive/auth/callback`.
+6. **nginx**: copiar `deploy/nginx-trama.jrgblanco.com.conf` a `/etc/nginx/sites-available/`,
+   enlazar en `sites-enabled`, `nginx -t` y recargar.
+7. **HTTPS** (lo ejecuta el propietario): `certbot --nginx -d trama.jrgblanco.com`.
+8. **Monitorización**: `/opt/scripts/healthcheck.sh` → `"TRAMA|trama-app|docker"`; SA99 →
+   `sa99.servers.vps-prod.projects.TRAMA = {containers: ["trama-app"], domain: "trama.jrgblanco.com"}`
+   y reflejarlo en `SEED_SERVERS`.
+9. **Cierre**: Catálogo de Infraestructura (secciones 2, 4 y 7), Manifiesto SDD-JRGB y Kickoff en Notion.
 
-## Comprobaciones tras desplegar
+## Comprobaciones
+- Seguridad: `ss -tlnp | grep docker-proxy | grep 0.0.0.0` vacío.
 - `curl -I https://trama.jrgblanco.com/api/assets` → 401 sin sesión.
-- Inicio de sesión desde el navegador, previews visibles, descarga de un original desde Drive.
-- `python -m trama check` en el servidor: modo password con contraseña, Drive configurado y conectado.
+- Inicio de sesión, vistas previas visibles, extracción de un recurso desde Drive y descarga del original.
+- Respaldo diario: `docker compose exec app python -m trama backup` en cron.
