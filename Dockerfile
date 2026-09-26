@@ -12,7 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
 WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt \
- && python -c "from static_ffmpeg import run; run.get_or_fetch_platform_executables_else_raise()" \
+ && python -c "from static_ffmpeg import run; import os; f, p = run.get_or_fetch_platform_executables_else_raise(); os.symlink(f, '/usr/local/bin/ffmpeg'); os.symlink(p, '/usr/local/bin/ffprobe')" \
+ && ffmpeg -version | head -1 \
  && useradd --system --uid 1000 --home /data trama && mkdir -p /data && chown trama /data
 COPY backend/trama backend/trama
 COPY --from=web /src/frontend/dist frontend/dist
