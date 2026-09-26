@@ -15,3 +15,4 @@
   propietario para probar «solo Drive»; hay que cerrar esa situación (restaurar o borrar con OK).
 - **La app de Claude puede parar el servidor de desarrollo por inactividad.** Para trabajos largos
   (subidas, vistas previas), arrancar `scripts\serve.cmd` en una terminal propia.
+- **Probar la imagen en el Mac antes del servidor sirvió.** El contenedor arrancaba pero sin FFmpeg (permisos de static-ffmpeg con usuario sin privilegios). Por SSH, Docker Desktop no puede abrir el llavero: usar un `DOCKER_CONFIG` temporal.
