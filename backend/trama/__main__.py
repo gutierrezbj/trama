@@ -124,9 +124,12 @@ def main(argv: list[str] | None = None) -> int:
 
         from .api import create_app
 
-        app = create_app(settings)
         host = args.host or settings.host
         port = args.port or settings.port
+        if host not in ("127.0.0.1", "localhost", "::1") and (settings.auth_mode != "password" or not settings.password_hash):
+            print(f"Rechazado: escuchar en {host} exige TRAMA_AUTH_MODE=password y TRAMA_PASSWORD_HASH.")
+            return 2
+        app = create_app(settings)
         print(f"TRAMA en http://{host}:{port}  (datos en {settings.data_dir})")
         uvicorn.run(app, host=host, port=port, log_level="info")
         return 0

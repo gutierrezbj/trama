@@ -240,3 +240,24 @@ Motivo (prueba real del propietario): casi toda la biblioteca se veía como «En
 | Pack real de 2 GB solo en Drive, 39 recursos | 36 con vista previa en 2 min 50 s; 3 fallidos por archivos MP4 truncados dentro del propio pack («moov atom not found»), marcados como error de análisis. Ninguna copia extraída residual. |
 | Estimación para toda la biblioteca | ~150 GB a ese ritmo ⇒ **unas 4 h**; derivados ~0,5 MB por recurso ⇒ ~4–5 GB locales (solo vistas previas). |
 | Pruebas | 25/25 (nueva `test_previews_for_whole_pack_leave_no_extracted_copies`; la de Drive cubre también vistas previas con el ZIP solo en Drive). |
+
+---
+
+# BUILD_NOTES — E3e preparación del despliegue (2026-09-26)
+
+Encargo del propietario: TRAMA como herramienta interna (Cuaderno de Protocolos JRGB, Kickoff parcial) en el Servidor 1, offset +260, `trama.jrgblanco.com` (registro A creado por el propietario y comprobado en 1.1.1.1, 8.8.8.8 y el DNS de Hostinger).
+
+## Qué se hizo
+- `Dockerfile` en dos etapas, `docker-compose.yml` (`trama-app` en `127.0.0.1:3260`), vhost nginx y `.env` de servidor de ejemplo en `deploy/`, `docs/DESPLIEGUE.md` al estándar JRGB.
+- `CLAUDE.md`, `DESIGN.md`, `tasks/lessons.md`.
+- `trama serve` se niega a escuchar fuera de loopback sin contraseña.
+
+## Verificado en el Mac (bleu, Docker 29.6.2, arm64)
+| Prueba | Resultado |
+|---|---|
+| Construcción de la imagen | OK. Primer intento: FFmpeg no disponible en ejecución (static-ffmpeg escribía un lock en site-packages con usuario sin privilegios) → corregido enlazando los binarios en `/usr/local/bin` al construir. |
+| Pruebas dentro del contenedor | 25/25 con FFmpeg n8.0.1. |
+| Arranque sin contraseña | Rechazado, como se esperaba. |
+| Arranque como producción | Solo `127.0.0.1:3260`; `/api/assets` 401 sin sesión; contraseña errónea 401; correcta 200 y catálogo 200; interfaz servida; healthcheck `healthy`. |
+
+Limitación: la imagen del servidor (x86_64) se construirá allí. Docker por SSH en el Mac necesita `DOCKER_CONFIG` temporal sin llavero y `DOCKER_HOST` al socket de Docker Desktop.
