@@ -298,3 +298,7 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - `index_pack` indexa también packs que solo están en Drive.
 - Servidor: carpeta de entrada `/entrada` (volumen) disponible como raíz permitida.
 - Pruebas: 28/28 (nuevas: descubrimiento e indexado desde Drive con vistas previas y sin copia local; subida de un ZIP de ZIPs sin duplicados).
+
+## Vistas previas del bundle 4K en el servidor (2026-09-27)
+- 3 packs nuevos descubiertos en Drive e indexados por rangos en segundos (MASTER BUNDLE 2.237 recursos, TEXTURE 223, STICKERS 52). TEXTURE y STICKERS con vistas previas completas.
+- MASTER BUNDLE se detuvo en el recurso 41: las tandas de 25 ProRes 4K superaban la caché de 5 GB del servidor, que además contaba ~2,9 GB de extracciones del PC que no existían en el servidor. Corregido: tandas limitadas al 40 % de la caché (`_preview_batches`) y reconciliación de la caché al arrancar (`reconcile_cache`). Pruebas: 30/30.
