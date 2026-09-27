@@ -1,4 +1,4 @@
-import { CATEGORY_LABELS, type Stats } from "./api";
+import { CATEGORY_LABELS, type Named, type Stats } from "./api";
 import { CATEGORY_ICONS, IconCloud, IconFolder, IconHeart, IconPlus, IconSearch, IconSelection } from "./icons";
 
 export type ViewName = "explore" | "collections" | "selections" | "favorites" | "import" | "copias";
@@ -11,12 +11,13 @@ export interface View {
 interface Props {
   view: View;
   stats: Stats | null;
+  pinned?: Named[];
   categories: string[];
   open: boolean;
   onNavigate: (v: View) => void;
 }
 
-export function Sidebar({ view, stats, categories, open, onNavigate }: Props) {
+export function Sidebar({ view, stats, pinned = [], categories, open, onNavigate }: Props) {
   const is = (name: ViewName, category?: string) => (view.name === name && (category === undefined || view.category === category) && (category !== undefined || !view.category) ? "page" : undefined);
   return (
     <nav className={`sidebar${open ? " open" : ""}`} aria-label="Navegación principal">
@@ -28,6 +29,11 @@ export function Sidebar({ view, stats, categories, open, onNavigate }: Props) {
         </div>
       </div>
       <button type="button" className="nav-item" aria-current={is("explore")} onClick={() => onNavigate({ name: "explore" })}><IconSearch />Explorar</button>
+      {pinned.map((p) => (
+        <button type="button" key={p.id} className="nav-item nav-pinned" aria-current={view.name === "selections" && view.id === p.id ? "page" : undefined} onClick={() => onNavigate({ name: "selections", id: p.id })}>
+          <IconSelection />{p.name}{p.count ? <span className="count">{p.count}</span> : null}
+        </button>
+      ))}
       <button type="button" className="nav-item" aria-current={view.name === "collections" ? "page" : undefined} onClick={() => onNavigate({ name: "collections" })}><IconFolder />Colecciones</button>
       <button type="button" className="nav-item" aria-current={view.name === "selections" ? "page" : undefined} onClick={() => onNavigate({ name: "selections" })}><IconSelection />Proyectos</button>
       <button type="button" className="nav-item" aria-current={is("favorites")} onClick={() => onNavigate({ name: "favorites" })}><IconHeart />Favoritos{stats && stats.favorites > 0 && <span className="count">{stats.favorites}</span>}</button>

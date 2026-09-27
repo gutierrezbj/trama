@@ -249,6 +249,7 @@ class NamedPatch(BaseModel):
     name: str | None = None
     description: str | None = None
     notes: str | None = None
+    pinned: bool | None = None
 
 
 class ItemPatch(BaseModel):
@@ -1288,8 +1289,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     def patch_selection(sid: str, body: NamedPatch, st: AppState = Depends(S)):
         sel = _named_get(st, "selections", sid)
         with st.db.tx() as conn:
-            conn.execute("UPDATE selections SET name = ?, notes = ?, updated_at = ? WHERE id = ?",
-                         ((body.name or sel["name"]).strip() or sel["name"], body.notes if body.notes is not None else sel["notes"], now_iso(), sid))
+            conn.execute("UPDATE selections SET name = ?, notes = ?, pinned = ?, updated_at = ? WHERE id = ?",
+                         ((body.name or sel["name"]).strip() or sel["name"], body.notes if body.notes is not None else sel["notes"],
+                          int(body.pinned) if body.pinned is not None else sel["pinned"], now_iso(), sid))
         return _named_get(st, "selections", sid)
 
     @app.delete("/api/selections/{sid}")

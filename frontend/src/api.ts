@@ -160,6 +160,7 @@ export interface Named {
   notes?: string;
   count?: number;
   cover_asset_id?: string | null;
+  pinned?: number;
   created_at: string;
   updated_at: string;
 }
@@ -396,7 +397,7 @@ export const api = {
   selection: (id: string) => request<Named & { items: Asset[] }>(`/api/selections/${id}`),
   createSelection: (name: string, notes = "") =>
     request<Named>("/api/selections", { method: "POST", body: JSON.stringify({ name, notes }) }),
-  patchSelection: (id: string, body: { name?: string; notes?: string }) =>
+  patchSelection: (id: string, body: { name?: string; notes?: string; pinned?: boolean }) =>
     request<Named>(`/api/selections/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteSelection: (id: string) => request<void>(`/api/selections/${id}`, { method: "DELETE" }),
   addToSelection: (id: string, assetId: string) => request<void>(`/api/selections/${id}/items/${assetId}`, { method: "PUT" }),
