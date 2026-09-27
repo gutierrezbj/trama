@@ -319,3 +319,24 @@ def test_preview_batches_fit_the_cache():
     entries = [{"size": s} for s in [1 * gb] * 4 + [6 * gb] + [10] * 30]
     batches = [len(b) for _, b in _preview_batches(entries, 5 * gb)]
     assert batches == [2, 2, 1, 25, 5]
+
+
+def test_job_interrupted_by_shutdown_goes_back_to_queue(env):
+    """Una parada del servidor no cancela ni da por fallido el trabajo en curso: vuelve a la cola."""
+    from trama.db import new_id, now_iso
+    from trama.worker import JobCancelled
+
+    worker = env["client"].app.state.trama.worker
+    db = env["client"].app.state.trama.db
+    job_id = new_id("job")
+    with db.tx() as conn:
+        conn.execute("INSERT INTO jobs(id, kind, status, payload, created_at) VALUES (?, 'backup', 'running', '{}', ?)", (job_id, now_iso()))
+    worker._stop.set()
+    try:
+        original = worker._run_backup
+        worker._run_backup = lambda job: (_ for _ in ()).throw(JobCancelled())
+        worker._run({"id": job_id, "kind": "backup", "payload": "{}"})
+    finally:
+        worker._run_backup = original
+        worker._stop.clear()
+    assert db.one("SELECT status FROM jobs WHERE id = ?", (job_id,))["status"] == "queued"

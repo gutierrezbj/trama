@@ -181,8 +181,17 @@ class Worker:
                 raise RuntimeError(f"Tipo de trabajo desconocido: {job['kind']}")
             self._finish(job_id, "done")
         except (JobCancelled, ImportCancelled):
-            self._finish(job_id, "cancelled", error="Cancelado")
+            if self._stop.is_set() and not self._cancel_requested(job_id):
+                # Parada del servidor, no del usuario: vuelve a la cola y se retoma al arrancar.
+                with self.db.tx() as conn:
+                    conn.execute("UPDATE jobs SET status = 'queued', message = 'Reanudará tras reiniciar' WHERE id = ?", (job_id,))
+            else:
+                self._finish(job_id, "cancelled", error="Cancelado")
         except Exception as exc:
+            if self._stop.is_set():
+                with self.db.tx() as conn:
+                    conn.execute("UPDATE jobs SET status = 'queued', message = 'Reanudará tras reiniciar' WHERE id = ?", (job_id,))
+                return
             log.error("Trabajo %s falló: %s\n%s", job_id, exc, traceback.format_exc())
             self._finish(job_id, "failed", error=str(exc) or exc.__class__.__name__)
 
@@ -356,8 +365,8 @@ class Worker:
                     )
                 log.info("Derivado %s de %s listo en %ss", kind, version_id, elapsed)
             except Exception as exc:
-                if self._cancel_requested(job_id):
-                    raise JobCancelled()
+                if self._cancel_requested(job_id) or self._stop.is_set():
+                    raise JobCancelled()  # FFmpeg parado por cancelación o reinicio: no es un fallo del archivo
                 failures.append(f"{kind}: {exc}")
                 with self.db.tx() as conn:
                     conn.execute("UPDATE derivatives SET status = 'failed', error = ?, updated_at = ? WHERE id = ?", (str(exc), now_iso(), row["id"]))
@@ -474,8 +483,10 @@ class Worker:
                                 conn.execute("UPDATE pack_entries SET status = 'failed', error = ? WHERE id = ?", (str(exc), entry["id"]))
                     self._drain_media_jobs(versions, should_cancel)
                 finally:
-                    # Las vistas previas quedan; las copias extraídas se sueltan siempre.
-                    release_entries(self.db, self.settings, pack["id"], "", extracted_ids)
+                    # Las vistas previas quedan; las copias extraídas se sueltan. En un reinicio se
+                    # conservan: sus análisis y derivados vuelven a la cola y las necesitan.
+                    if not self._stop.is_set():
+                        release_entries(self.db, self.settings, pack["id"], "", extracted_ids)
                 done += len(extracted_ids)
                 self.notify()
         msg = f"{done} vistas previas generadas" + (f", {failed} fallidas" if failed else "")
