@@ -190,7 +190,7 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
             <button type="button" className="status-pill" title="Recursos cuyo original sigue dentro de su pack (en tu Drive o en el equipo)" onClick={() => { setExplore({ ...initialExplore, availability: "archived" }); setView({ name: "explore" }); }}>{stats.archived} en packs</button>
           )}
           {stats && stats.analysis_failed > 0 && !busy && (
-            <button type="button" className="status-pill" onClick={() => setView({ name: "import" })}>{stats.analysis_failed} con error de análisis</button>
+            <button type="button" className="status-pill" title="Archivos que no se pudieron analizar; en los packs suelen venir rotos de origen" onClick={() => { setExplore({ ...initialExplore, analysis: "failed" }); setView({ name: "explore" }); }}>{stats.analysis_failed} con error de análisis</button>
           )}
           {auth?.mode === "password" && (
             <button type="button" className="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión" onClick={onLogout}><IconLogout /></button>
