@@ -267,3 +267,22 @@ Limitación: la imagen del servidor (x86_64) se construirá allí. Docker por SS
 - Corregido tras la revisión del propietario: la ficha de una imagen aún dentro del pack decía «no hay preview todavía» y hablaba de identidad provisional. Ahora muestra la miniatura y el aviso distingue «el original sigue en su pack, la vista previa ya está» del caso provisional. El indicador superior pasa de «N sin extraer» a «N en packs».
 - Revisión de los 33 errores de análisis: **22 eran basura de macOS** (AppleDouble `._nombre`, 4 KB, no multimedia), ahora ignorados al indexar y retirados del catálogo por la migración `0005_basura_macos.sql` (probada antes sobre una copia del catálogo real; copia de seguridad previa en `respaldos/`). De los 11 restantes, 10 transiciones de una misma carpeta tienen **todo su contenido a ceros** (descarga fallida en origen) y 1 MOV está cortado exactamente en 1 MiB, con una copia buena en otro pack.
 - Ficha: botón de cerrar visible también en escritorio; «Reintentar» con el original dentro del pack vuelve a sacarlo del ZIP (antes respondía 409); el aviso ya no habla de identidad provisional cuando no lo es. Pruebas: 26/26 (nueva `test_macos_junk_in_zip_is_ignored`).
+
+---
+
+# BUILD_NOTES — Despliegue en el Servidor 1 (2026-09-27)
+
+TRAMA en producción en **https://trama.jrgblanco.com** (Servidor 1, `/opt/apps/trama`, contenedor `trama-app` en `127.0.0.1:3260`, offset +260).
+
+| Paso | Resultado |
+|---|---|
+| Imagen | Construida en el servidor (x86_64) con `docker compose build`. |
+| Catálogo | Snapshot del PC (8.431 fichas, 17.969 archivos, 5,5 GB) enviado por `tar | ssh` en 15 min 44 s y restaurado con verificación de SHA-256. |
+| Contraseña | Nueva del propietario; huella idéntica en el contenedor (comprobada por firma). |
+| Drive | `client_secret.json` y `token.json` en el volumen (600, usuario `trama`); acceso a la carpeta TRAMA comprobado desde el servidor. |
+| nginx + HTTPS | vhost desde `deploy/`; Certbot ejecutado por el propietario; Let's Encrypt hasta el 26 dic 2026; http → https 301; HSTS, X-Frame-Options, nosniff, Referrer-Policy. |
+| Seguridad | Sin puertos Docker en 0.0.0.0; `/api/assets` 401 sin sesión; contenedor `healthy`. |
+| Monitorización | `/opt/scripts/healthcheck.sh` → `TRAMA|trama-app|docker` (estado `up`); SA99 Mongo `vps-prod.projects.TRAMA` y `SEED_SERVERS` (también se añadió JRGB, que faltaba). Copias previas de los archivos tocados. |
+
+Incidencias resueltas: compose interpretaba los `$` de la huella en `env_file` (se escapan como `$$`); el restore desde un montaje de solo lectura fallaba porque el catálogo está en WAL (se monta con escritura y `chown 1000`).
+Pendiente: cliente OAuth «Aplicación web» para poder reconectar Drive desde el servidor (hoy se renueva con el token del cliente de escritorio); respaldo diario en cron.
