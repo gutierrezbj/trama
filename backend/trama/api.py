@@ -281,6 +281,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     for root in settings.allowed_roots:
         if root.is_dir():
             ensure_source(db, root)
+    from .packs import reconcile_cache
+
+    reconcile_cache(db, settings)
 
     app = FastAPI(title="TRAMA", version=__version__, docs_url="/api/docs" if settings.auth_mode == "off" else None, openapi_url="/api/openapi.json" if settings.auth_mode == "off" else None)
     app.state.trama = state

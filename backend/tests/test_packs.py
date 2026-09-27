@@ -288,3 +288,34 @@ def test_macos_junk_in_zip_is_ignored(env):
     assert pack["entries_media"] == 1
     titles = [a["original_title"] for a in client.get("/api/assets", params={"pack_id": pack["id"], "limit": 50}).json()["items"]]
     assert titles == ["humo.mov"]
+
+
+def test_restored_catalog_does_not_count_missing_extractions(env):
+    """Tras restaurar el catálogo en otra máquina, lo «extraído» que no está en la caché vuelve a
+    estar dentro del pack y no cuenta como caché ocupada."""
+    from trama.packs import cache_bytes_used, reconcile_cache
+
+    client = env["client"]
+    root: Path = env["root"]
+    files = env["files"]
+    (root / "packs").mkdir()
+    make_pack(root / "packs", {"Audio/tono.wav": files["audio"]}, "c.zip")
+    pack = index_and_wait(client, source_id(client), "packs/c.zip")
+    client.post(f"/api/packs/{pack['id']}/extract", json={"prefix": ""})
+    wait_idle(client)
+    db, settings = env["db"] if "db" in env else client.app.state.trama.db, env["settings"]
+    assert cache_bytes_used(db) > 0
+    shutil.rmtree(settings.cache_dir / pack["id"])
+    assert reconcile_cache(db, settings) == 1
+    assert cache_bytes_used(db) == 0
+    assert client.get(f"/api/packs/{pack['id']}").json()["extracted"] == 0
+
+
+def test_preview_batches_fit_the_cache():
+    """Las tandas de vistas previas caben en el 40 % de la caché; una entrada enorme va sola."""
+    from trama.worker import _preview_batches
+
+    gb = 1024**3
+    entries = [{"size": s} for s in [1 * gb] * 4 + [6 * gb] + [10] * 30]
+    batches = [len(b) for _, b in _preview_batches(entries, 5 * gb)]
+    assert batches == [2, 2, 1, 25, 5]

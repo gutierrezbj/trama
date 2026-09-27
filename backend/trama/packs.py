@@ -310,6 +310,20 @@ def cache_bytes_used(db: Database) -> int:
     return int(row["n"]) if row else 0
 
 
+def reconcile_cache(db: Database, settings: Settings) -> int:
+    """Entradas marcadas como extraídas cuya copia ya no está en la caché (p. ej. tras restaurar el
+    catálogo en otra máquina) vuelven a «dentro del pack», para no contar espacio fantasma."""
+    fixed = 0
+    rows = db.query("SELECT id, pack_id, inner_path FROM pack_entries WHERE status = 'extracted'")
+    with db.tx() as conn:
+        for r in rows:
+            if not cache_path_for(settings, r["pack_id"], r["inner_path"]).is_file():
+                conn.execute("UPDATE pack_entries SET status = 'archived', extracted_at = NULL WHERE id = ?", (r["id"],))
+                conn.execute("UPDATE locations SET status = 'archived' WHERE pack_entry_id = ?", (r["id"],))
+                fixed += 1
+    return fixed
+
+
 def check_disk_limits(db: Database, settings: Settings, incoming: int) -> None:
     used = cache_bytes_used(db)
     if used + incoming > settings.cache_max_bytes:

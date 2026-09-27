@@ -456,8 +456,7 @@ class Worker:
 
         done = failed = 0
         with PackReader(self.settings, pack) as reader:
-            for start in range(0, total, PREVIEW_BATCH):
-                batch = entries[start:start + PREVIEW_BATCH]
+            for start, batch in _preview_batches(entries, self.settings.cache_max_bytes):
                 extracted_ids, versions = [], set()
                 try:
                     for pos, entry in enumerate(batch, start=start):
@@ -748,6 +747,20 @@ def enqueue_extract(db: Database, pack_id: str, prefix: str = "", entry_ids: lis
 
 
 PREVIEW_BATCH = 25  # entradas extraídas a la vez antes de generar sus vistas y soltarlas
+
+
+def _preview_batches(entries: list[dict], cache_max_bytes: int):
+    """Tandas de hasta PREVIEW_BATCH entradas que además quepan en ~40 % de la caché (vídeos 4K:
+    25 ProRes pueden pasar de varios GB). Una entrada más grande que eso va sola."""
+    budget = max(1, int(cache_max_bytes * 0.4))
+    start = 0
+    while start < len(entries):
+        end, used = start, 0
+        while end < len(entries) and end - start < PREVIEW_BATCH and (end == start or used + entries[end]["size"] <= budget):
+            used += entries[end]["size"]
+            end += 1
+        yield start, entries[start:end]
+        start = end
 
 
 def pending_preview_entries(db: Database, pack_id: str | None = None) -> list[dict]:
