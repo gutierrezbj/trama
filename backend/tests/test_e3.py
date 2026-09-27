@@ -568,3 +568,22 @@ def test_subir_zip_de_zips_a_drive_sin_duplicados(drive_env, tmp_path):
     before = len(fake.files)
     assert run(settings, [bundle], fake.transport()) == 0
     assert len(fake.files) == before
+
+
+def test_subir_zip_de_pdfs_va_como_pack(drive_env, tmp_path):
+    """Un ZIP que solo trae PDF (tutoriales) se sube tal cual a TRAMA/Packs, no desempaquetado."""
+    import zipfile as _zip
+
+    from trama.subir import run
+
+    client, fake, settings = drive_env["client"], drive_env["fake"], drive_env["settings"]
+    url = client.post("/api/drive/auth/start").json()["url"]
+    state = re.search(r"state=([^&]+)", url).group(1)
+    client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)
+    z = tmp_path / "Tutoriales.zip"
+    with _zip.ZipFile(z, "w") as zf:
+        zf.writestr("Tutoriales/A.pdf", b"%PDF-1.4 a")
+        zf.writestr("Tutoriales/B.pdf", b"%PDF-1.4 b")
+    assert run(settings, [z], fake.transport()) == 0
+    packs_folder = next(f["id"] for f in fake.files.values() if f.get("name") == "Packs")
+    assert [f["name"] for f in fake.files.values() if f.get("parent") == packs_folder and "data" in f] == ["Tutoriales.zip"]

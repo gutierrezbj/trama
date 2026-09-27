@@ -64,8 +64,10 @@ def run(settings: Settings, sources: list[Path], transport=None) -> int:
             print(f"== {src.name}", flush=True)
             with zipfile.ZipFile(src) as outer:
                 inner = [i for i in outer.infolist() if not i.is_dir()]
+                zips = [i for i in inner if decode_name(i).lower().endswith(".zip")]
                 containers = [i for i in inner if decode_name(i).lower().endswith((".zip", ".pdf"))]
-                if not containers or len(containers) < len(inner) // 2:
+                # Solo es «ZIP de ZIPs» si dentro hay ZIP de verdad; un ZIP de PDF es un pack normal.
+                if not zips or len(containers) < len(inner) // 2:
                     # ZIP normal (recursos dentro): se sube tal cual.
                     containers = []
             items = [(src, None)] if not containers else [(src, i) for i in containers]
