@@ -95,7 +95,8 @@ def classify_entry(info: zipfile.ZipInfo, settings: Settings) -> EntryInfo:
     return EntryInfo(inner, file_name, ext, kind, info.file_size, info.compress_size, info.CRC & 0xFFFFFFFF, reason)
 
 
-def read_index(zip_path: Path, settings: Settings) -> list[EntryInfo]:
+def read_index(zip_path, settings: Settings) -> list[EntryInfo]:
+    """`zip_path` puede ser una ruta o un archivo con seek (p. ej. un ZIP en Drive por rangos)."""
     try:
         zf = zipfile.ZipFile(zip_path)
     except zipfile.BadZipFile as exc:
@@ -158,14 +159,27 @@ def index_pack(db: Database, settings: Settings, pack_id: str, should_cancel: Ca
     if pack is None:
         raise PackError("Pack inexistente")
     zip_path = pack_zip_path(settings, dict(pack))
-    if zip_path is None or not zip_path.is_file():
+    remote = None
+    if zip_path is not None and zip_path.is_file():
+        source = zip_path
+    elif pack["drive_file_id"]:
+        # Pack que solo está en Drive: se lee el directorio central por rangos, sin descargar el ZIP.
+        from .drive import DriveClient, RemoteFile
+
+        remote = RemoteFile(DriveClient(settings, getattr(settings, "_drive_transport", None)), pack["drive_file_id"], int(pack["size"]))
+        source = remote
+    else:
         with db.tx() as conn:
             conn.execute("UPDATE packs SET status = 'offline', error = 'El archivo ZIP no está accesible' WHERE id = ?", (pack_id,))
         raise PackError("El archivo ZIP no está accesible")
     with db.tx() as conn:
         conn.execute("UPDATE packs SET status = 'indexing', error = NULL WHERE id = ?", (pack_id,))
     on_progress(0.05, "Leyendo el índice del ZIP")
-    entries = read_index(zip_path, settings)
+    try:
+        entries = read_index(source, settings)
+    finally:
+        if remote is not None:
+            remote.close()
     on_progress(0.3, f"Catalogando {len(entries)} entradas")
     stats = {"total": len(entries), "media": 0, "unsafe": 0, "bytes": 0, "new_assets": 0}
     now = now_iso()
@@ -229,6 +243,33 @@ def index_pack(db: Database, settings: Settings, pack_id: str, should_cancel: Ca
     link_provider_previews(db, pack_id=pack_id)
     on_progress(1.0, f"{stats['media']} recursos, {stats['unsafe']} entradas rechazadas")
     return stats
+
+
+def register_drive_packs(db: Database, files: list[dict], source_id: str) -> list[str]:
+    """Da de alta como packs los ZIP de la carpeta TRAMA/Packs de Drive que el catálogo aún no
+    conoce (ni por id de Drive ni por md5). Devuelve los ids de los packs nuevos."""
+    known_ids = {r["drive_file_id"] for r in db.query("SELECT drive_file_id FROM packs WHERE drive_file_id IS NOT NULL")}
+    known_md5 = {r["drive_md5"] for r in db.query("SELECT drive_md5 FROM packs WHERE drive_md5 IS NOT NULL")}
+    new_ids: list[str] = []
+    now = now_iso()
+    with db.tx() as conn:
+        for f in files:
+            name = f.get("name") or ""
+            if not name.lower().endswith(".zip") or f["id"] in known_ids or (f.get("md5Checksum") and f["md5Checksum"] in known_md5):
+                continue
+            if conn.execute("SELECT 1 FROM packs WHERE source_id = ? AND rel_path = ?", (source_id, name)).fetchone():
+                continue
+            pack_id = new_id("pck")
+            conn.execute(
+                "INSERT INTO packs(id, source_id, rel_path, label, size, mtime, status, created_at, drive_file_id, drive_md5, drive_verified_at) "
+                "VALUES (?, ?, ?, ?, ?, 0, 'pending', ?, ?, ?, ?)",
+                (pack_id, source_id, name, default_pack_label(Path(name)), int(f.get("size") or 0), now, f["id"], f.get("md5Checksum"), now),
+            )
+            known_ids.add(f["id"])
+            if f.get("md5Checksum"):
+                known_md5.add(f["md5Checksum"])
+            new_ids.append(pack_id)
+    return new_ids
 
 
 def link_provider_previews(db: Database, pack_id: str | None = None) -> int:

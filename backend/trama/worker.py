@@ -376,6 +376,8 @@ class Worker:
             lambda p, m: self._progress(job_id, p, m),
         )
         self._progress(job_id, 1.0, f"{stats['media']} recursos catalogados ({stats['new_assets']} nuevos), {stats['unsafe']} entradas rechazadas")
+        if payload.get("then_previews"):
+            enqueue_previews(self.db, payload["pack_id"])
         self.notify()
 
     def _run_extract(self, job: dict) -> None:
@@ -719,7 +721,7 @@ def enqueue_backup(db: Database, label: str = "", upload: bool = False) -> str:
     return job_id
 
 
-def enqueue_index_pack(db: Database, pack_id: str) -> str:
+def enqueue_index_pack(db: Database, pack_id: str, then_previews: bool = False) -> str:
     now = now_iso()
     with db.tx() as conn:
         pending = conn.execute("SELECT id FROM jobs WHERE kind = 'index_pack' AND status IN ('queued','running') AND json_extract(payload, '$.pack_id') = ?", (pack_id,)).fetchone()
@@ -728,7 +730,7 @@ def enqueue_index_pack(db: Database, pack_id: str) -> str:
         job_id = new_id("job")
         conn.execute(
             "INSERT INTO jobs(id, kind, status, payload, created_at, max_attempts) VALUES (?, 'index_pack', 'queued', ?, ?, 1)",
-            (job_id, json.dumps({"pack_id": pack_id}), now),
+            (job_id, json.dumps({"pack_id": pack_id, "then_previews": then_previews}), now),
         )
     return job_id
 

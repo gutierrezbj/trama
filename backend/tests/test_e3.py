@@ -187,6 +187,11 @@ class FakeDrive:
             q = url.params.get("q", "")
             name = re.search(r"name = '((?:[^'\\]|\\.)*)'", q)
             parent = re.search(r"'([^']+)' in parents", q)
+            if "mimeType != 'application/vnd.google-apps.folder'" in q:
+                files = [f for f in self.files.values() if f.get("mimeType") != "application/vnd.google-apps.folder" and not f.get("trashed")]
+                if parent:
+                    files = [f for f in files if f.get("parent", "root") == parent.group(1)]
+                return httpx.Response(200, json={"files": [{k: f[k] for k in ("id", "name", "size", "md5Checksum") if k in f} for f in files]})
             folders = [f for f in self.files.values() if f.get("mimeType") == "application/vnd.google-apps.folder"]
             if name:
                 folders = [f for f in folders if f["name"] == name.group(1).replace("\\'", "'")]
@@ -250,7 +255,7 @@ class FakeDrive:
         self.n += 1
         fid = f"file{self.n}"
         data = bytes(sess["data"])
-        self.files[fid] = {"id": fid, "name": sess["meta"]["name"], "size": str(len(data)), "md5Checksum": hashlib.md5(data).hexdigest(), "trashed": False, "data": data}
+        self.files[fid] = {"id": fid, "name": sess["meta"]["name"], "size": str(len(data)), "md5Checksum": hashlib.md5(data).hexdigest(), "trashed": False, "data": data, "parent": (sess["meta"].get("parents") or ["root"])[0]}
         return {"id": fid, "md5Checksum": self.files[fid]["md5Checksum"], "size": str(len(data))}
 
 
@@ -488,3 +493,78 @@ def test_remote_file_reads_sequential_entry_without_refetching():
     assert data == payload
     assert rf.requests <= 6
     assert rf.bytes_fetched <= len(blob) * 1.5
+
+
+def test_drive_scan_indexes_new_pack_uploaded_elsewhere(drive_env):
+    """Un ZIP que llegó a TRAMA/Packs desde fuera (otro equipo) se descubre, se indexa leyendo
+    Drive por rangos y queda con vistas previas, sin copia local; repetir no duplica."""
+    import zipfile as _zip
+
+    client, fake, files, root = drive_env["client"], drive_env["fake"], drive_env["files"], drive_env["root"]
+    url = client.post("/api/drive/auth/start").json()["url"]
+    state = re.search(r"state=([^&]+)", url).group(1)
+    client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)
+    assert client.post("/api/packs/drive-scan").json() == {"in_drive": 0, "new": 0, "other_files": 0}
+
+    # Otro equipo sube un pack nuevo a TRAMA/Packs.
+    import io
+    buf = io.BytesIO()
+    with _zip.ZipFile(buf, "w", _zip.ZIP_DEFLATED) as zf:
+        zf.write(files["audio"], "Audio/tono.wav")
+        zf.write(files["opaque"], "Clips/clip.mp4")
+        zf.writestr("Audio/._tono.wav", bytes([0, 5, 22, 7]) + bytes(100))
+    packs_folder = next(f["id"] for f in fake.files.values() if f.get("name") == "Packs")
+    data = buf.getvalue()
+    fake.files["zipnuevo"] = {"id": "zipnuevo", "name": "NUEVO PACK.zip", "size": str(len(data)), "md5Checksum": hashlib.md5(data).hexdigest(), "trashed": False, "data": data, "parent": packs_folder}
+    fake.files["ebook"] = {"id": "ebook", "name": "guia.pdf", "size": "10", "md5Checksum": "x", "trashed": False, "data": b"0123456789", "parent": packs_folder}
+
+    r = client.post("/api/packs/drive-scan").json()
+    assert r == {"in_drive": 1, "new": 1, "other_files": 1}
+    wait_idle(client)
+    pack = next(p for p in client.get("/api/packs").json() if p["label"].startswith("NUEVO PACK"))
+    assert pack["status"] == "indexed" and pack["entries_media"] == 2 and pack["drive_verified_at"]
+    items = client.get("/api/assets", params={"pack_id": pack["id"], "limit": 50}).json()["items"]
+    assert sorted(a["original_title"] for a in items) == ["clip.mp4", "tono.wav"]
+    assert all(a["preview"]["status"] == "ready" and a["archived"] for a in items)
+    assert not (root / "NUEVO PACK.zip").exists()
+    assert client.post("/api/packs/drive-scan").json()["new"] == 0
+
+
+def test_subir_zip_de_zips_a_drive_sin_duplicados(drive_env, tmp_path):
+    """`trama subir` con un «Download all»: cada ZIP interior va a TRAMA/Packs verificado por md5,
+    los repetidos se saltan, los PDF van a TRAMA/Documentos y no queda copia temporal."""
+    import io
+    import zipfile as _zip
+
+    from trama.subir import run
+
+    client, fake, files, settings = drive_env["client"], drive_env["fake"], drive_env["files"], drive_env["settings"]
+    url = client.post("/api/drive/auth/start").json()["url"]
+    state = re.search(r"state=([^&]+)", url).group(1)
+    client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)
+
+    def inner(member: Path, arc: str) -> bytes:
+        b = io.BytesIO()
+        with _zip.ZipFile(b, "w") as z:
+            z.write(member, arc)
+        return b.getvalue()
+
+    grain = inner(files["opaque"], "Grain/clip.mp4")
+    bundle = tmp_path / "MASTER BUNDLE.zip"
+    with _zip.ZipFile(bundle, "w") as z:
+        z.writestr("GRAIN.zip", grain)
+        z.writestr("EDITING ESSENTIAL — GRAIN.zip", grain)   # repetido con otro nombre
+        z.writestr("SFX.zip", inner(files["audio"], "SFX/tono.wav"))
+        z.writestr("Guia.pdf", b"%PDF-1.4 guia")
+
+    assert run(settings, [bundle], fake.transport()) == 0
+    packs_folder = next(f["id"] for f in fake.files.values() if f.get("name") == "Packs")
+    docs_folder = next(f["id"] for f in fake.files.values() if f.get("name") == "Documentos")
+    in_packs = sorted(f["name"] for f in fake.files.values() if f.get("parent") == packs_folder and "data" in f)
+    in_docs = [f["name"] for f in fake.files.values() if f.get("parent") == docs_folder and "data" in f]
+    assert in_packs == ["GRAIN.zip", "SFX.zip"] and in_docs == ["Guia.pdf"]
+    assert not any((settings.data_dir / "subida-temporal").iterdir())
+    # Segunda pasada: nada nuevo que subir.
+    before = len(fake.files)
+    assert run(settings, [bundle], fake.transport()) == 0
+    assert len(fake.files) == before

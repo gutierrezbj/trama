@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--yes", action="store_true", help="No pedir confirmación")
     vb = sub.add_parser("verify-backup", help="Comprueba la integridad de un snapshot")
     vb.add_argument("folder")
+    up = sub.add_parser("subir", help="Sube packs ZIP (o un ZIP de ZIPs) a TRAMA/Packs en Google Drive, sin catalogarlos aquí")
+    up.add_argument("zips", nargs="+")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -118,6 +120,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Restaurado desde {r['restored_from']} ({r['assets']} fichas). Lo anterior se conservó como {r['kept_previous_as']}.")
         return 0
+
+    if args.command == "subir":
+        from .subir import run as subir
+
+        return subir(settings, [Path(z) for z in args.zips])
 
     if args.command == "serve":
         import uvicorn

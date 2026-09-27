@@ -797,6 +797,30 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         n = release_entries(st.db, st.settings, pack_id, body.prefix, body.entry_ids)
         return {"released": n}
 
+    @app.post("/api/packs/drive-scan", status_code=202)
+    def packs_drive_scan(st: AppState = Depends(S)):
+        """Busca en la carpeta TRAMA/Packs de Drive ZIP que el catálogo no conoce, los da de alta y
+        encola su indexado (leyendo el ZIP por rangos) seguido de sus vistas previas."""
+        from .packs import register_drive_packs
+        from .worker import ensure_drive_source
+
+        _require_drive(st)
+        client = DriveClient(st.settings, st.drive_transport)
+        try:
+            packs_folder = client.ensure_subfolder("Packs", client.ensure_folder())
+            files = client.list_children(packs_folder)
+        except DriveError as exc:
+            raise HTTPException(502, str(exc))
+        finally:
+            client.close()
+        source_id = ensure_drive_source(st.db, packs_folder)
+        new_ids = register_drive_packs(st.db, files, source_id)
+        for pack_id in new_ids:
+            enqueue_index_pack(st.db, pack_id, then_previews=True)
+        st.worker.notify()
+        zips = [f for f in files if (f.get("name") or "").lower().endswith(".zip")]
+        return {"in_drive": len(zips), "new": len(new_ids), "other_files": len(files) - len(zips)}
+
     @app.post("/api/packs/drive-upload-all", status_code=202)
     def packs_drive_upload_all(st: AppState = Depends(S)):
         """Encola la subida a Drive de todos los packs cuyo ZIP está en este equipo y aún no están verificados en Drive."""

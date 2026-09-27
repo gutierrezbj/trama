@@ -129,6 +129,10 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
                 <div className="row between tiny"><span>Copia de los packs en tu Google Drive</span><span>{inDrive} de {all} verificados</span></div>
                 <div className="progress"><div style={{ width: `${(inDrive / all) * 100}%` }} /></div>
                 {running && <div className="tiny">Subiendo: {running.message}{queued ? ` · ${queued} en cola` : ""}</div>}
+                <div className="row" style={{ flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                  <button type="button" className="btn small" onClick={() => api.packsDriveScan().then((r) => { setError(r.new ? `${r.new} packs nuevos encontrados en Drive: indexando y generando vistas previas` : `Nada nuevo: ${r.in_drive} packs en Drive, todos catalogados`); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Buscar packs nuevos en Drive</button>
+                  <span className="tiny">Sube el ZIP a tu Drive, carpeta TRAMA/Packs, y pulsa aquí.</span>
+                </div>
                 {inDrive < all && !running && !queued && (
                   <button type="button" className="btn small" onClick={() => api.packsDriveUploadAll().then((r) => { setError(r.queued ? null : "Nada pendiente de subir"); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Subir los packs que faltan a Drive</button>
                 )}

@@ -286,3 +286,15 @@ TRAMA en producción en **https://trama.jrgblanco.com** (Servidor 1, `/opt/apps/
 
 Incidencias resueltas: compose interpretaba los `$` de la huella en `env_file` (se escapan como `$$`); el restore desde un montaje de solo lectura fallaba porque el catálogo está en WAL (se monta con escritura y `chown 1000`).
 Pendiente: cliente OAuth «Aplicación web» para poder reconectar Drive desde el servidor (hoy se renueva con el token del cliente de escritorio); respaldo diario en cron.
+
+---
+
+# BUILD_NOTES — E4a Packs nuevos desde Drive (2026-09-27)
+
+Motivo: el propietario compró un bundle con licencia comercial (entregado como descarga directa, «Download all» = un ZIP de ZIPs de 49 GB). Decisión: los packs viven en su Google Drive (5 TB) y TRAMA se alimenta desde allí; ni el PC ni el servidor guardan los ZIP.
+
+- `python -m trama subir <zip…>` (en cualquier equipo con TRAMA y Drive conectado): saca cada ZIP interior de uno en uno a una carpeta temporal, lo sube reanudable a `TRAMA/Packs`, verifica md5 contra Google y borra la copia; salta los que ya están (mismo md5); PDF a `TRAMA/Documentos`.
+- `POST /api/packs/drive-scan` y botón «Buscar packs nuevos en Drive» (Fuentes y packs): lista `TRAMA/Packs`, da de alta los ZIP que el catálogo no conoce (ni por id ni por md5), los indexa leyendo el directorio central por rangos y encadena sus vistas previas.
+- `index_pack` indexa también packs que solo están en Drive.
+- Servidor: carpeta de entrada `/entrada` (volumen) disponible como raíz permitida.
+- Pruebas: 28/28 (nuevas: descubrimiento e indexado desde Drive con vistas previas y sin copia local; subida de un ZIP de ZIPs sin duplicados).
