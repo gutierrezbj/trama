@@ -162,7 +162,7 @@ export function Inspector(props: Props) {
         )}
 
         {asset.version.analysis_status === "failed" && (
-          <div className="notice warn">Análisis fallido: {asset.version.analysis_error ?? "sin detalle"}. <button type="button" className="btn small" onClick={() => api.reanalyze(asset.id).then(setAsset)}>Reintentar</button></div>
+          <div className="notice warn">Análisis fallido: {asset.version.analysis_error ?? "sin detalle"}. <button type="button" className="btn small" onClick={() => api.reanalyze(asset.id).then((a) => { setAsset(a); setToast("Reintento en cola"); }).catch((e) => setToast((e as Error).message))}>Reintentar</button></div>
         )}
         {asset.preview.status === "failed" && asset.version.analysis_status === "done" && (
           <div className="notice warn">
@@ -172,11 +172,19 @@ export function Inspector(props: Props) {
         )}
         {asset.archived && (
           <div className="notice">
-            <strong>Dentro del pack, sin extraer.</strong> La ficha existe con identidad provisional (crc32 + tamaño); el hash, el análisis y las previews llegan al extraer.
-            <div style={{ marginTop: 8 }} className="row">
-              <button type="button" className="btn small primary" disabled={!asset.extractable} onClick={async () => { try { const r = await api.extractAsset(asset.id); setToast(r.message ?? "Extracción en cola"); load(true); } catch (e) { setToast((e as Error).message); } }}>Extraer y analizar</button>
-              <span className="tiny">{formatBytes(asset.version.size)} a la caché</span>
-            </div>
+            {asset.version.analysis_status === "done" ? (
+              <><strong>El original sigue dentro de su pack.</strong> La vista previa ya está; al descargarlo, TRAMA lo saca del ZIP ({formatBytes(asset.version.size)}).</>
+            ) : asset.version.identity_kind !== "provisional" ? (
+              <><strong>El original sigue dentro de su pack.</strong> Ya se sacó una vez para analizarlo ({formatBytes(asset.version.size)}); «Reintentar» lo vuelve a sacar del ZIP.</>
+            ) : (
+              <>
+                <strong>Dentro del pack, sin extraer.</strong> La ficha existe con identidad provisional (crc32 + tamaño); el hash, el análisis y las previews llegan al extraer.
+                <div style={{ marginTop: 8 }} className="row">
+                  <button type="button" className="btn small primary" disabled={!asset.extractable} onClick={async () => { try { const r = await api.extractAsset(asset.id); setToast(r.message ?? "Extracción en cola"); load(true); } catch (e) { setToast((e as Error).message); } }}>Extraer y analizar</button>
+                  <span className="tiny">{formatBytes(asset.version.size)} a la caché</span>
+                </div>
+              </>
+            )}
           </div>
         )}
         {!asset.available && !asset.archived && !asset.remote_available && (

@@ -272,3 +272,19 @@ def test_previews_for_whole_pack_leave_no_extracted_copies(env):
     assert client.get(f"/api/packs/{pack['id']}").json()["extracted"] == 0
     assert not [p for p in env["settings"].cache_dir.rglob("*") if p.is_file()]
     assert client.post("/api/packs/previews").json()["queued"] == 0
+
+
+def test_macos_junk_in_zip_is_ignored(env):
+    """Los «._nombre» (AppleDouble) y __MACOSX que meten los Mac en los ZIP no son recursos."""
+    client = env["client"]
+    root: Path = env["root"]
+    files = env["files"]
+    (root / "packs").mkdir()
+    path = make_pack(root / "packs", {"VFX/humo.mov": files["alpha"]}, "mac.zip")
+    with zipfile.ZipFile(path, "a") as zf:
+        zf.writestr("VFX/._humo.mov", b"\x00\x05\x16\x07" + b"\x00" * 4000)
+        zf.writestr("__MACOSX/VFX/._humo.mov", b"\x00\x05\x16\x07" + b"\x00" * 4000)
+    pack = index_and_wait(client, source_id(client), "packs/mac.zip")
+    assert pack["entries_media"] == 1
+    titles = [a["original_title"] for a in client.get("/api/assets", params={"pack_id": pack["id"], "limit": 50}).json()["items"]]
+    assert titles == ["humo.mov"]

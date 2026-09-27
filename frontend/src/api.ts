@@ -420,7 +420,9 @@ export const api = {
 };
 
 export const previewUrl = (asset: Asset, bg: Bg = "dark") =>
-  `/api/assets/${asset.id}/preview${asset.preview.kind === "video_alpha" ? `?bg=${bg}` : ""}`;
+  asset.preview.kind === "image" && !asset.available && asset.thumb_url
+    ? asset.thumb_url  // imagen aún dentro del pack: su miniatura
+    : `/api/assets/${asset.id}/preview${asset.preview.kind === "video_alpha" ? `?bg=${bg}` : ""}`;
 export const originalUrl = (asset: Asset, inline = false) => `/api/assets/${asset.id}/original${inline ? "?inline=1" : ""}`;
 
 export const CATEGORY_LABELS: Record<string, string> = {

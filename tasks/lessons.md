@@ -16,3 +16,4 @@
 - **La app de Claude puede parar el servidor de desarrollo por inactividad.** Para trabajos largos
   (subidas, vistas previas), arrancar `scripts\serve.cmd` en una terminal propia.
 - **Probar la imagen en el Mac antes del servidor sirvió.** El contenedor arrancaba pero sin FFmpeg (permisos de static-ffmpeg con usuario sin privilegios). Por SSH, Docker Desktop no puede abrir el llavero: usar un `DOCKER_CONFIG` temporal.
+- **Antes de dar un archivo por «dañado», mirarlo.** De 33 errores, 22 eran `._` de macOS (no recursos) y los otros se confirmaron abriendo los bytes (todo a ceros, o cortado en 1 MiB). Así la lista para reclamar al vendedor es cierta.

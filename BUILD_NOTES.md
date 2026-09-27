@@ -261,3 +261,9 @@ Encargo del propietario: TRAMA como herramienta interna (Cuaderno de Protocolos 
 | Arranque como producción | Solo `127.0.0.1:3260`; `/api/assets` 401 sin sesión; contraseña errónea 401; correcta 200 y catálogo 200; interfaz servida; healthcheck `healthy`. |
 
 Limitación: la imagen del servidor (x86_64) se construirá allí. Docker por SSH en el Mac necesita `DOCKER_CONFIG` temporal sin llavero y `DOCKER_HOST` al socket de Docker Desktop.
+
+## Vistas previas completas y ficha (2026-09-27)
+- Generación nocturna terminada: 71 packs en 4 h 39 min; 8.884 recursos con análisis y vistas previas, 33 archivos rotos de origen (26 MP4 truncados, 7 con datos inválidos). Derivados: 5,5 GB.
+- Corregido tras la revisión del propietario: la ficha de una imagen aún dentro del pack decía «no hay preview todavía» y hablaba de identidad provisional. Ahora muestra la miniatura y el aviso distingue «el original sigue en su pack, la vista previa ya está» del caso provisional. El indicador superior pasa de «N sin extraer» a «N en packs».
+- Revisión de los 33 errores de análisis: **22 eran basura de macOS** (AppleDouble `._nombre`, 4 KB, no multimedia), ahora ignorados al indexar y retirados del catálogo por la migración `0005_basura_macos.sql` (probada antes sobre una copia del catálogo real; copia de seguridad previa en `respaldos/`). De los 11 restantes, 10 transiciones de una misma carpeta tienen **todo su contenido a ceros** (descarga fallida en origen) y 1 MOV está cortado exactamente en 1 MiB, con una copia buena en otro pack.
+- Ficha: botón de cerrar visible también en escritorio; «Reintentar» con el original dentro del pack vuelve a sacarlo del ZIP (antes respondía 409); el aviso ya no habla de identidad provisional cuando no lo es. Pruebas: 26/26 (nueva `test_macos_junk_in_zip_is_ignored`).
