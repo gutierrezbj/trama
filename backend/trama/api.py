@@ -1022,7 +1022,15 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
     def reanalyze(asset_id: str, st: AppState = Depends(S)):
         row = get_asset_row(st.db, asset_id)
         if original_path_for_version(st.db, st.settings, row["version_id"]) is None:
-            raise HTTPException(409, "El original no está disponible; extrae o reconecta la fuente antes de reanalizar")
+            # Sigue dentro de un pack (local o Drive): se vuelve a sacar del ZIP y el análisis se repite solo.
+            locs = archived_pack_locations(st.db, row["version_id"])
+            if not locs:
+                raise HTTPException(409, "El original no está disponible; reconecta la fuente antes de reanalizar")
+            with st.db.tx() as conn:
+                conn.execute("UPDATE asset_versions SET analysis_status = 'pending', analysis_error = NULL WHERE id = ? AND analysis_status = 'failed'", (row["version_id"],))
+            enqueue_extract(st.db, locs[0]["pack_id"], "", [locs[0]["entry_id"]])
+            st.worker.notify()
+            return serialize_asset(st, get_asset_row(st.db, asset_id), detail=True)
         enqueue_reanalyze(st.db, row["version_id"])
         st.worker.notify()
         return serialize_asset(st, get_asset_row(st.db, asset_id), detail=True)

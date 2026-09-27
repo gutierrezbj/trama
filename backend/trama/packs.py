@@ -84,7 +84,9 @@ def classify_entry(info: zipfile.ZipInfo, settings: Settings) -> EntryInfo:
     inner = "/".join(parts)
     file_name = parts[-1] if parts else raw
     ext = Path(file_name).suffix.lower()
-    if ext in ARCHIVE_EXT:
+    if file_name.startswith("._") or any(p.lower() == "__macosx" for p in parts[:-1]):
+        kind = "ignored"  # basura de macOS (AppleDouble), no es multimedia
+    elif ext in ARCHIVE_EXT:
         kind = "ignored"  # no se extraen ZIP anidados
     elif ext in MEDIA_EXTENSIONS:
         kind = media_kind_for(ext)
