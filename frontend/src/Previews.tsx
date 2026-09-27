@@ -3,20 +3,30 @@ import { api } from "./api";
 import { useAsync, useInterval } from "./hooks";
 
 /** Aviso «recursos sin vista previa» con el botón que las genera todas desde los ZIP (local o Drive). */
-export function PreviewsBanner() {
+export function PreviewsBanner({ always = false }: { always?: boolean }) {
   const status = useAsync(() => api.previewsStatus(), []);
   const [msg, setMsg] = useState<string | null>(null);
   const s = status.data;
   const working = !!s && s.packs_queued > 0;
   useInterval(() => status.reload(true), 4000, working);
-  if (!s || (s.pending === 0 && !working)) return null;
+  if (!s) return null;
+  if (s.pending === 0 && !working) {
+    if (!always) return null;
+    return (
+      <div className="storage status-card previews-banner">
+        <div className="row between"><strong>Vistas previas</strong><span className="tiny">{new Intl.NumberFormat("es-ES").format(s.total)} de {new Intl.NumberFormat("es-ES").format(s.total)}</span></div>
+        <div className="progress"><div style={{ width: "100%" }} /></div>
+        <div className="tiny">Toda la biblioteca tiene imagen.</div>
+      </div>
+    );
+  }
   const done = s.total - s.pending;
   const nf = new Intl.NumberFormat("es-ES");
   return (
-    <div className="storage previews-banner">
-      <div className="row between tiny">
-        <span>Vistas previas de tus packs</span>
-        <span>{nf.format(done)} de {nf.format(s.total)}</span>
+    <div className={`storage previews-banner${always ? " status-card" : ""}`}>
+      <div className={always ? "row between" : "row between tiny"}>
+        {always ? <strong>Vistas previas</strong> : <span>Vistas previas de tus packs</span>}
+        <span className="tiny">{nf.format(done)} de {nf.format(s.total)}</span>
       </div>
       <div className="progress"><div style={{ width: `${s.total ? (done / s.total) * 100 : 0}%` }} /></div>
       {working ? (

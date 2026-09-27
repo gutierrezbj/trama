@@ -242,6 +242,10 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 .sel-item .ops { display: flex; gap: 4px; }
 
 /* ---------- incorporar ---------- */
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px; align-items: stretch; }
+.status-card { padding: 14px 16px; background: var(--surface); gap: 8px; margin: 0; }
+.status-card strong { font-size: 14px; }
+.import-grid.single { grid-template-columns: 1fr; }
 .import-grid { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1.2fr); gap: 24px; align-items: start; }
 .panel { padding: 18px; border-radius: var(--r-l); background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
 .panel h2 { margin: 0; font-size: 16px; }

@@ -64,10 +64,39 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
     <>
       <div className="view-head"><h1>Fuentes y packs</h1><p>Aquí das de alta en TRAMA carpetas y packs ZIP. No es para el día a día: lo que ya está dado de alta se busca en Explorar. TRAMA nunca mueve ni modifica tus originales.</p></div>
       {config && !config.tools.ok && <div className="notice warn">FFmpeg no disponible: {config.tools.error}. Los archivos se catalogarán, pero sin análisis ni previews.</div>}
-      <div className="import-grid">
-        <div className="panel">
+      <section className="status-grid" aria-label="Estado de la biblioteca">
+            {packs.data && packs.data.length > 0 && (() => {
+              const inDrive = packs.data.filter((p) => p.drive_verified_at).length;
+              const all = packs.data.length;
+              const running = (jobs.data ?? []).find((j) => j.kind === "pack_upload" && j.status === "running");
+              const queued = (jobs.data ?? []).filter((j) => j.kind === "pack_upload" && j.status === "queued").length;
+              return (
+                <div className="storage status-card">
+                  <div className="row between"><strong>Tus packs en Google Drive</strong><span>{inDrive} de {all} verificados</span></div>
+                  <div className="progress"><div style={{ width: `${(inDrive / all) * 100}%` }} /></div>
+                  {running && <div className="tiny">Subiendo: {running.message}{queued ? ` · ${queued} en cola` : ""}</div>}
+                  <div className="row" style={{ flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                    <button type="button" className="btn small" onClick={() => api.packsDriveScan().then((r) => { setError(r.new ? `${r.new} packs nuevos encontrados en Drive: indexando y generando vistas previas` : `Nada nuevo: ${r.in_drive} packs en Drive, todos catalogados`); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Buscar packs nuevos en Drive</button>
+                    <span className="tiny">Sube el ZIP a tu Drive, carpeta TRAMA/Packs, y pulsa aquí.</span>
+                  </div>
+                  {inDrive < all && !running && !queued && (
+                    <button type="button" className="btn small" onClick={() => api.packsDriveUploadAll().then((r) => { setError(r.queued ? null : "Nada pendiente de subir"); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Subir los packs que faltan a Drive</button>
+                  )}
+                </div>
+              );
+            })()}
+        <PreviewsBanner always />
+            {st && (
+              <div className="storage status-card">
+                <div className="row between"><strong>Espacio de trabajo</strong><span>{formatBytes(st.cache_bytes)} de {formatBytes(st.cache_max_bytes)}</span></div>
+                <div className="progress"><div style={{ width: `${Math.min(100, (st.cache_bytes / st.cache_max_bytes) * 100)}%` }} /></div>
+                <div className="tiny">Caché de extracción · disco libre {formatBytes(st.disk_free_bytes)} (mínimo reservado {formatBytes(st.min_free_bytes)}) · derivados {formatBytes(st.derivatives_bytes)}</div>
+              </div>
+            )}
+      </section>
+      <div className={`import-grid${sources.length === 0 ? " single" : ""}`}>
+        {sources.length > 0 && <div className="panel">
           <h2>Fuentes locales</h2>
-          {sources.length === 0 && <div className="notice warn">No hay raíces permitidas. Define <code>TRAMA_ALLOWED_ROOTS</code> en el archivo .env y reinicia el servidor.</div>}
           <div className="source-list">
             {sources.map((s) => (
               <button type="button" key={s.id} aria-pressed={s.id === sourceId} disabled={!s.exists} onClick={() => { setSourceId(s.id); setPath(""); }}>
@@ -115,38 +144,10 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
               </div>
             </>
           )}
-        </div>
+        </div>}
 
         <div className="panel">
-          <h2>Packs indexados</h2>
-          {packs.data && packs.data.length > 0 && (() => {
-            const inDrive = packs.data.filter((p) => p.drive_verified_at).length;
-            const all = packs.data.length;
-            const running = (jobs.data ?? []).find((j) => j.kind === "pack_upload" && j.status === "running");
-            const queued = (jobs.data ?? []).filter((j) => j.kind === "pack_upload" && j.status === "queued").length;
-            return (
-              <div className="storage">
-                <div className="row between tiny"><span>Copia de los packs en tu Google Drive</span><span>{inDrive} de {all} verificados</span></div>
-                <div className="progress"><div style={{ width: `${(inDrive / all) * 100}%` }} /></div>
-                {running && <div className="tiny">Subiendo: {running.message}{queued ? ` · ${queued} en cola` : ""}</div>}
-                <div className="row" style={{ flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
-                  <button type="button" className="btn small" onClick={() => api.packsDriveScan().then((r) => { setError(r.new ? `${r.new} packs nuevos encontrados en Drive: indexando y generando vistas previas` : `Nada nuevo: ${r.in_drive} packs en Drive, todos catalogados`); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Buscar packs nuevos en Drive</button>
-                  <span className="tiny">Sube el ZIP a tu Drive, carpeta TRAMA/Packs, y pulsa aquí.</span>
-                </div>
-                {inDrive < all && !running && !queued && (
-                  <button type="button" className="btn small" onClick={() => api.packsDriveUploadAll().then((r) => { setError(r.queued ? null : "Nada pendiente de subir"); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Subir los packs que faltan a Drive</button>
-                )}
-              </div>
-            );
-          })()}
-          <PreviewsBanner />
-          {st && (
-            <div className="storage">
-              <div className="row between tiny"><span>Caché de extracción</span><span>{formatBytes(st.cache_bytes)} de {formatBytes(st.cache_max_bytes)}</span></div>
-              <div className="progress"><div style={{ width: `${Math.min(100, (st.cache_bytes / st.cache_max_bytes) * 100)}%` }} /></div>
-              <div className="tiny">Disco libre {formatBytes(st.disk_free_bytes)} (mínimo reservado {formatBytes(st.min_free_bytes)}) · derivados {formatBytes(st.derivatives_bytes)}</div>
-            </div>
-          )}
+          <h2>Tus packs</h2>
           {packs.data && packs.data.length === 0 && <div className="tiny">Ningún ZIP indexado todavía. Indexar lee el índice del ZIP sin extraer nada.</div>}
           <div className="job-list">
             {(packs.data ?? []).map((p) => <PackRow key={p.id} pack={p} onOpen={() => onOpenPack(p.id)} />)}
