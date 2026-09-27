@@ -127,7 +127,8 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
     elif preview_kind == "none":
         preview_status = "unsupported"
     elif preview_kind == "image":
-        preview_status = "ready" if available else "archived"
+        # Sin el original a mano, la miniatura generada desde el ZIP hace de vista previa.
+        preview_status = "ready" if available or derivatives.get("thumb", {}).get("status") == "ready" else "archived"
     else:
         statuses = [derivatives.get(k, {}).get("status", "pending") for k in kinds]
         preview_status = "ready" if statuses and all(s == "ready" for s in statuses) else ("failed" if "failed" in statuses else "pending")

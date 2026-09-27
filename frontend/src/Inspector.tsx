@@ -172,11 +172,17 @@ export function Inspector(props: Props) {
         )}
         {asset.archived && (
           <div className="notice">
-            <strong>Dentro del pack, sin extraer.</strong> La ficha existe con identidad provisional (crc32 + tamaño); el hash, el análisis y las previews llegan al extraer.
-            <div style={{ marginTop: 8 }} className="row">
-              <button type="button" className="btn small primary" disabled={!asset.extractable} onClick={async () => { try { const r = await api.extractAsset(asset.id); setToast(r.message ?? "Extracción en cola"); load(true); } catch (e) { setToast((e as Error).message); } }}>Extraer y analizar</button>
-              <span className="tiny">{formatBytes(asset.version.size)} a la caché</span>
-            </div>
+            {asset.version.analysis_status === "done" ? (
+              <><strong>El original sigue dentro de su pack.</strong> La vista previa ya está; al descargarlo, TRAMA lo saca del ZIP ({formatBytes(asset.version.size)}).</>
+            ) : (
+              <>
+                <strong>Dentro del pack, sin extraer.</strong> La ficha existe con identidad provisional (crc32 + tamaño); el hash, el análisis y las previews llegan al extraer.
+                <div style={{ marginTop: 8 }} className="row">
+                  <button type="button" className="btn small primary" disabled={!asset.extractable} onClick={async () => { try { const r = await api.extractAsset(asset.id); setToast(r.message ?? "Extracción en cola"); load(true); } catch (e) { setToast((e as Error).message); } }}>Extraer y analizar</button>
+                  <span className="tiny">{formatBytes(asset.version.size)} a la caché</span>
+                </div>
+              </>
+            )}
           </div>
         )}
         {!asset.available && !asset.archived && !asset.remote_available && (
