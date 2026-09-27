@@ -176,7 +176,7 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
   return (
     <div className={`shell${selectedId ? " with-inspector" : ""}`}>
       {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} />}
-      <Sidebar view={view} stats={stats} categories={categories} open={navOpen} onNavigate={setView} />
+      <Sidebar view={view} stats={stats} pinned={selections.filter((x) => x.pinned)} categories={categories} open={navOpen} onNavigate={setView} />
       <div className="main">
         <header className="topbar">
           <button type="button" className="icon-btn menu-toggle" aria-label="Abrir navegación" onClick={() => setNavOpen(true)}><IconMenu /></button>

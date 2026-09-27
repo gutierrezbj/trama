@@ -340,3 +340,13 @@ def test_job_interrupted_by_shutdown_goes_back_to_queue(env):
         worker._run_backup = original
         worker._stop.clear()
     assert db.one("SELECT status FROM jobs WHERE id = ?", (job_id,))["status"] == "queued"
+
+
+def test_pin_project_to_sidebar(env):
+    """Un proyecto se puede fijar en la barra lateral y la marca persiste."""
+    client = env["client"]
+    sid = client.post("/api/selections", json={"name": "Aprender"}).json()["id"]
+    assert client.patch(f"/api/selections/{sid}", json={"pinned": True}).json()["pinned"] == 1
+    assert next(x for x in client.get("/api/selections").json() if x["id"] == sid)["pinned"] == 1
+    assert client.patch(f"/api/selections/{sid}", json={"notes": "hola"}).json()["pinned"] == 1
+    assert client.patch(f"/api/selections/{sid}", json={"pinned": False}).json()["pinned"] == 0
