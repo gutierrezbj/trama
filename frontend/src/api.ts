@@ -360,6 +360,7 @@ export const api = {
   packDriveUpload: (id: string) => request<{ job_id: string | null; message: string | null }>(`/api/packs/${id}/drive-upload`, { method: "POST" }),
   previewsStatus: () => request<PreviewsStatus>("/api/packs/previews"),
   previewsAll: () => request<{ queued: number; unreachable: number }>("/api/packs/previews", { method: "POST" }),
+  packsDriveScan: () => request<{ in_drive: number; new: number; other_files: number }>("/api/packs/drive-scan", { method: "POST" }),
   packsDriveUploadAll: () => request<{ queued: number; already_in_drive: number; zip_missing: number; bytes: number }>("/api/packs/drive-upload-all", { method: "POST" }),
   releasePack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ released: number }>(`/api/packs/${id}/release`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),

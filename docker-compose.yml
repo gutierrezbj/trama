@@ -13,5 +13,7 @@ services:
       - "127.0.0.1:3260:8765"
     volumes:
       - trama-data:/data
+      # Entrada de packs nuevos: se copian aquí, TRAMA los indexa y los sube a Drive; luego se borran.
+      - ./entrada:/entrada
 volumes:
   trama-data:

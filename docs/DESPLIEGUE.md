@@ -1,5 +1,7 @@
 # Despliegue en el Servidor 1 (estándar JRGB)
 
+**Estado: desplegada el 27 sep 2026** en https://trama.jrgblanco.com (Let's Encrypt hasta el 26 dic 2026, renovación automática; HSTS).
+
 Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el **Servidor 1**
 (`72.62.41.234`), offset **+260** reservado en el Catálogo de Infraestructura JRGB, dominio
 `trama.jrgblanco.com` (registro A creado por el propietario en Hostinger el 26 sep 2026).
@@ -18,12 +20,13 @@ Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el **Se
 ## Pasos
 1. **Código**: `git clone https://github.com/gutierrezbj/trama /opt/apps/trama`.
 2. **Configuración**: copiar `deploy/env.servidor.example` a `/opt/apps/trama/.env` (permisos 600) y
-   rellenar `TRAMA_PASSWORD_HASH` (generado con `python -m trama set-password`).
+   rellenar `TRAMA_PASSWORD_HASH` (generado con `python -m trama set-password`) **escribiendo cada `$` como `$$`**: compose interpreta `$` en `env_file` y rompe la huella sin avisar más que con un warning.
 3. **Arranque**: `docker compose up -d --build` en `/opt/apps/trama`. Comprobar
    `docker ps | grep trama-app` (healthy) y `curl -s 127.0.0.1:3260/api/auth/status`.
 4. **Catálogo**: en el PC, `python -m trama backup` (snapshot con catálogo y vistas previas);
-   copiarlo al servidor y restaurarlo con el contenedor parado:
-   `docker compose run --rm app python -m trama restore /data/import/<snapshot> --yes`.
+   copiarlo al servidor (`tar cf - <snapshot> | ssh root@srs-prod 'tar xf - -C /opt/apps/trama/import'`),
+   `chown -R 1000:1000 /opt/apps/trama/import` (el catálogo en WAL no abre en un montaje de solo lectura) y restaurar:
+   `docker compose run --rm --no-deps -v /opt/apps/trama/import:/import app python -m trama restore /import/<snapshot> --yes`.
 5. **Drive**: copiar `client_secret.json` y `token.json` a `/data/drive/` (permisos 600). El token
    actual se renueva solo; para volver a conectar desde el servidor hace falta un cliente OAuth
    «Aplicación web» con el URI `https://trama.jrgblanco.com/api/drive/auth/callback`.

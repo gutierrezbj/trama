@@ -212,6 +212,28 @@ class DriveClient:
         save_token(self.settings, self.token)
         return folder_id
 
+    def list_children(self, parent_id: str) -> list[dict]:
+        """Archivos (no carpetas) dentro de una carpeta creada por la app; paginado."""
+        out: list[dict] = []
+        token = None
+        while True:
+            params = {
+                "q": f"'{parent_id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'",
+                "fields": "nextPageToken,files(id,name,size,md5Checksum,modifiedTime)",
+                "pageSize": 1000,
+                "spaces": "drive",
+            }
+            if token:
+                params["pageToken"] = token
+            r = self._api("GET", "/drive/v3/files", params=params)
+            if r.status_code != 200:
+                raise DriveError(f"No se pudo listar la carpeta: {r.status_code} {r.text[:200]}")
+            data = r.json()
+            out.extend(data.get("files", []))
+            token = data.get("nextPageToken")
+            if not token:
+                return out
+
     # --- subida reanudable
     def start_upload(self, name: str, size: int, mime: str, folder_id: str, app_properties: dict | None = None) -> str:
         meta = {"name": name, "parents": [folder_id]}
