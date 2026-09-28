@@ -33,6 +33,9 @@ PRICES: dict[str, tuple[float, float]] = {
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4o-mini": (0.15, 0.60),
 }
+# Modelos que razonan antes de responder: sin razonamiento la respuesta no se queda vacía por
+# agotar el presupuesto de tokens (pasó con gpt-6-luna en 14 de 50) y sale más barata.
+NO_REASONING = {"gpt-6-luna", "gpt-5.4-mini", "gpt-5.4-nano"}
 DEFAULT_TEST_MODELS = ["local:qwen/qwen3-vl-8b", "openai:gpt-6-luna", "openai:gpt-5.4-mini"]
 
 PROMPT = """You are cataloguing a stock asset for a video editor (VFX, overlays, transitions, titles, textures).
@@ -102,10 +105,10 @@ def _endpoint(settings: Settings, model_spec: str) -> tuple[str, dict, str]:
 
 
 def _parse(content: str) -> tuple[str, list[str]]:
-    match = re.search(r"\{.*\}", content or "", re.S)
-    if not match:
-        raise VisionError(f"Respuesta sin JSON: {content[:120]!r}")
-    data = json.loads(match.group(0))
+    start = (content or "").find("{")
+    if start < 0:
+        raise VisionError(f"Respuesta sin JSON: {(content or '')[:120]!r}")
+    data, _end = json.JSONDecoder().raw_decode(content[start:])  # ignora lo que venga después del objeto
     tags = []
     for t in data.get("tags") or []:
         t = re.sub(r"[_\-]+", " ", str(t)).strip().lower()
@@ -125,7 +128,12 @@ def describe(settings: Settings, model_spec: str, sheet: Path, hints: str, clien
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}", "detail": "low"}},
         ]}],
     }
-    body["max_completion_tokens" if model_spec.startswith("openai:") else "max_tokens"] = 300
+    if model_spec.startswith("openai:"):
+        body["max_completion_tokens"] = 600
+        if model in NO_REASONING:
+            body["reasoning_effort"] = "none"
+    else:
+        body["max_tokens"] = 300
     started = time.perf_counter()
     own = client is None
     client = client or httpx.Client(timeout=180)

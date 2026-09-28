@@ -404,6 +404,7 @@ export const api = {
   aiStatus: () => request<{ openai: boolean; local: boolean; default_models: string[] }>("/api/ai/status"),
   aiTest: (models: string[] = [], size = 50) => request<{ run_id: string; models: string[] }>("/api/ai/test", { method: "POST", body: JSON.stringify({ models, size }) }),
   aiLatest: () => request<AiRun | null>("/api/ai/runs/latest"),
+  aiRetry: (runId: string) => request<{ retrying: number }>(`/api/ai/runs/${runId}/retry`, { method: "POST" }),
   aiVote: (runId: string, versionId: string, winner: string) =>
     request<{ ok: boolean }>(`/api/ai/runs/${runId}/vote`, { method: "POST", body: JSON.stringify({ version_id: versionId, winner }) }),
 

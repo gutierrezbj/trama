@@ -65,9 +65,16 @@ export function IAView({ onOpenAsset }: { onOpenAsset: (id: string) => void }) {
               {s && !s.openai && " · sin clave de OpenAI"}
             </p>
           </div>
+          <div className="ai-actions">
+          {r && !running && r.summary.some((m) => m.errors > 0) && (
+            <button type="button" className="btn" onClick={async () => { await api.aiRetry(r.id); run.reload(true); }}>
+              Reintentar las {r.summary.reduce((n, m) => n + m.errors, 0)} que fallaron
+            </button>
+          )}
           <button type="button" className="btn primary" disabled={running || !s || (!s.local && !s.openai)} onClick={start}>
             {r ? "Lanzar otra prueba" : "Lanzar prueba"}
           </button>
+          </div>
         </div>
         {running && <div className="progress" aria-label="Progreso"><div style={{ width: `${Math.round((answered / Math.max(1, expected)) * 100)}%` }} /></div>}
         {running && <p className="tiny">{answered} de {expected} respuestas. El modelo del Mac es el más lento: deja el Mac encendido con LM Studio abierto.</p>}

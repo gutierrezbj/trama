@@ -44,3 +44,8 @@ def test_ai_test_compares_models_with_measured_cost_and_votes(env, monkeypatch):
     client.post(f"/api/ai/runs/{run['id']}/vote", json={"version_id": vid, "winner": "openai:gpt-6-luna"})
     again = client.get("/api/ai/runs/latest").json()
     assert next(s for s in again["summary"] if s["model"] == "openai:gpt-6-luna")["wins"] == 1
+
+
+def test_reply_with_trailing_text_after_the_json_is_accepted():
+    desc, tags = vision._parse('{"description": "Chispas", "tags": ["sparks"]}\n{"extra": 1}')
+    assert desc == "Chispas" and tags == ["sparks"]
