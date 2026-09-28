@@ -19,3 +19,5 @@
 - **Antes de dar un archivo por «dañado», mirarlo.** De 33 errores, 22 eran `._` de macOS (no recursos) y los otros se confirmaron abriendo los bytes (todo a ceros, o cortado en 1 MiB). Así la lista para reclamar al vendedor es cierta.
 - **`docker compose` interpreta `$` en `env_file`.** Una huella PBKDF2 (`pbkdf2$310000$…`) llegaba rota al contenedor; solo un warning lo delataba. Escapar como `$$` y comprobar la firma dentro del contenedor.
 - **Un SQLite en WAL no se abre en un montaje de solo lectura.** Para restaurar un snapshot, montarlo con escritura para el usuario del contenedor.
+- **Un healthcheck que no toca lo importante miente.** `/api/auth/status` respondía 200 con el proceso sin descriptores; el chequeo de salud debe abrir la base de datos y un archivo.
+- **Conexiones por hilo en un servidor web = fuga.** Los hilos del pool mueren y nacen; lo que se guarda por hilo hay que cerrarlo cuando el hilo muere.

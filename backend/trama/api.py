@@ -613,6 +613,19 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         st.worker.cancel(job["id"])
         return {"ok": True}
 
+    @app.get("/api/health")
+    def health(st: AppState = Depends(S)):
+        """Salud real (para Docker y el healthcheck): abre la base de datos y un archivo de la
+        interfaz. Sin datos del catálogo: es pública."""
+        try:
+            st.db.one("SELECT 1")
+            if FRONTEND_DIST.exists():
+                with open(FRONTEND_DIST / "index.html", "rb") as fh:
+                    fh.read(1)
+        except Exception as exc:  # p. ej. «Too many open files»
+            return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=503)
+        return {"ok": True, "db_connections": st.db.open_connections()}
+
     @app.get("/api/jobs/summary")
     def jobs_summary(st: AppState = Depends(S)):
         rows = st.db.query("SELECT kind, status, COUNT(*) AS n FROM jobs GROUP BY kind, status")

@@ -302,3 +302,8 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 ## Vistas previas del bundle 4K en el servidor (2026-09-27)
 - 3 packs nuevos descubiertos en Drive e indexados por rangos en segundos (MASTER BUNDLE 2.237 recursos, TEXTURE 223, STICKERS 52). TEXTURE y STICKERS con vistas previas completas.
 - MASTER BUNDLE se detuvo en el recurso 41: las tandas de 25 ProRes 4K superaban la caché de 5 GB del servidor, que además contaba ~2,9 GB de extracciones del PC que no existían en el servidor. Corregido: tandas limitadas al 40 % de la caché (`_preview_batches`) y reconciliación de la caché al arrancar (`reconcile_cache`). Pruebas: 30/30.
+
+## Incidencia 28 sep 2026: TRAMA sin servicio tras ~11 h
+- Síntoma: la página se cortaba («upstream prematurely closed», «Response content shorter than Content-Length») y la ficha y el resumen de trabajos daban 500, mientras Docker seguía marcando «healthy».
+- Causa: el proceso tenía 1.023 de 1.024 descriptores abiertos. Cada hilo del servidor web abría su conexión SQLite (hilo-local) y `Database` guardaba una referencia fuerte en `_all`, así que las conexiones de hilos ya muertos nunca se cerraban.
+- Arreglo: `Database` recoge y cierra las conexiones de hilos muertos al abrir una nueva; `/api/health` pública que abre la base de datos y un archivo (usada por el HEALTHCHECK de Docker y por healthcheck.sh); `ulimits.nofile` 65536 en compose. Servicio restablecido reiniciando el contenedor (las vistas previas se reanudaron solas).

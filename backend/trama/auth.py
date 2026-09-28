@@ -24,7 +24,7 @@ from .config import Settings
 from .db import Database, now_iso
 
 COOKIE_NAME = "trama_session"
-PUBLIC_PATHS = {"/api/auth/status", "/api/auth/login", "/api/drive/auth/callback"}
+PUBLIC_PATHS = {"/api/auth/status", "/api/auth/login", "/api/drive/auth/callback", "/api/health"}
 PBKDF2_ITERATIONS = 310_000
 
 

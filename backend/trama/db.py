@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import threading
+import weakref
 import unicodedata
 import uuid
 from contextlib import contextmanager
@@ -38,10 +39,31 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
         self._write_lock = threading.RLock()
-        self._all: list[sqlite3.Connection] = []
+        # (hilo dueño, conexión). Los servidores web crean y retiran hilos continuamente: sin cerrar
+        # las conexiones de los hilos muertos se agotan los descriptores de archivo (pasó en el
+        # servidor el 28 sep 2026 tras 11 h: 1.023 de 1.024).
+        self._all: list[tuple[weakref.ref, sqlite3.Connection]] = []
         self._all_lock = threading.Lock()
 
+    def _reap_dead(self) -> None:
+        with self._all_lock:
+            alive, dead = [], []
+            for ref, conn in self._all:
+                t = ref()
+                (alive if t is not None and t.is_alive() else dead).append((ref, conn))
+            self._all = alive
+        for _, conn in dead:
+            try:
+                conn.close()
+            except sqlite3.ProgrammingError:
+                pass
+
+    def open_connections(self) -> int:
+        with self._all_lock:
+            return len(self._all)
+
     def _connect(self) -> sqlite3.Connection:
+        self._reap_dead()
         conn = sqlite3.connect(str(self.path), timeout=30, check_same_thread=False, isolation_level=None)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -49,7 +71,7 @@ class Database:
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=30000")
         with self._all_lock:
-            self._all.append(conn)
+            self._all.append((weakref.ref(threading.current_thread()), conn))
         return conn
 
     @property
@@ -110,7 +132,7 @@ class Database:
         """Cierra TODAS las conexiones abiertas por cualquier hilo (necesario en Windows para
         poder mover el archivo, p. ej. al restaurar un respaldo)."""
         with self._all_lock:
-            conns, self._all = self._all, []
+            conns, self._all = [c for _, c in self._all], []
         for conn in conns:
             try:
                 conn.close()
