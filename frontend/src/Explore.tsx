@@ -1,6 +1,6 @@
 import { PreviewsBanner } from "./Previews";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, type Asset, type AssetFilters, type Pack, CATEGORY_LABELS } from "./api";
+import { api, type Asset, type AssetFilters, type Pack, type TagCount, CATEGORY_LABELS } from "./api";
 import { AssetCard } from "./AssetCard";
 import { useDebounced, useInterval, useReducedMotion } from "./hooks";
 import { IconSliders } from "./icons";
@@ -15,12 +15,13 @@ export interface ExploreState {
   packId: string;
   mediaKind: "" | "video" | "audio" | "image" | "other";
   duplicates: boolean;
+  tags: string[];
   sort: "recent" | "title" | "duration" | "size";
   offset: number;
 }
 
 export const initialExplore: ExploreState = {
-  alpha: false, vertical: false, short: false, categories: [], availability: "", analysis: "", packId: "", mediaKind: "", duplicates: false, sort: "recent", offset: 0,
+  alpha: false, vertical: false, short: false, categories: [], availability: "", analysis: "", packId: "", mediaKind: "", duplicates: false, tags: [], sort: "recent", offset: 0,
 };
 
 interface Props {
@@ -58,6 +59,9 @@ export function Explore(props: Props) {
   const reduced = useReducedMotion();
   const [hover, setHover] = useState<string | null>(null);
   const [more, setMore] = useState(false);
+  const [allTags, setAllTags] = useState<TagCount[]>([]);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  useEffect(() => { api.tags().then(setAllTags).catch(() => undefined); }, [refreshKey]);
   const filters = useMemo<AssetFilters>(
     () => ({
       q: debounced,
@@ -70,6 +74,7 @@ export function Explore(props: Props) {
       pack_id: state.packId || undefined,
       media_kind: state.mediaKind || undefined,
       duplicates: state.duplicates || undefined,
+      tag: state.tags,
       sort: state.sort,
       ...fixed,
     }),
@@ -176,7 +181,7 @@ export function Explore(props: Props) {
   }, [firstRow, lastRow, cols, total, count, loadPage]);
 
   const set = (patch: Partial<ExploreState>) => onState({ ...state, ...patch, offset: 0 });
-  const activeFilters = state.alpha || state.vertical || state.short || state.categories.length > 0 || !!state.availability || !!state.analysis || !!state.packId || !!state.mediaKind || state.duplicates || !!query;
+  const activeFilters = state.alpha || state.vertical || state.short || state.categories.length > 0 || !!state.availability || !!state.analysis || !!state.packId || !!state.mediaKind || state.duplicates || state.tags.length > 0 || !!query;
   const clear = () => onState({ ...initialExplore, sort: state.sort });
   const showFilters = props.showFilters !== false;
 
@@ -208,6 +213,15 @@ export function Explore(props: Props) {
           {activeFilters && <button type="button" className="chip chip-clear" onClick={clear}>✕ Limpiar filtros</button>}
           <span className="count" aria-live="polite">{total === null ? "Cargando…" : `${total} ${total === 1 ? "recurso" : "recursos"}`}</span>
         </div>
+      )}
+      {showFilters && allTags.length > 0 && (
+        <TagStrip
+          tags={allTags}
+          selected={state.tags}
+          open={tagsOpen}
+          onOpen={setTagsOpen}
+          onToggle={(t) => set({ tags: state.tags.includes(t) ? state.tags.filter((x) => x !== t) : [...state.tags, t] })}
+        />
       )}
       {showFilters && more && (
         <div className="more-filters">
@@ -307,5 +321,56 @@ export function Explore(props: Props) {
         })}
       </div>
     </>
+  );
+}
+
+const STRIP = 18;
+
+/**
+ * Franja de etiquetas: las elegidas primero y después las más frecuentes de contenido (carpetas y
+ * manuales). «Ver todas» despliega el resto, con las medidas (4K, vertical…) en su grupo.
+ * Varias elegidas se combinan: humo + transparente = humo con transparencia.
+ */
+function TagStrip({ tags, selected, open, onOpen, onToggle }: {
+  tags: TagCount[];
+  selected: string[];
+  open: boolean;
+  onOpen: (v: boolean) => void;
+  onToggle: (t: string) => void;
+}) {
+  const content = tags.filter((t) => t.kind !== "medida");
+  const measured = tags.filter((t) => t.kind === "medida");
+  const top = content.filter((t) => !selected.includes(t.tag)).slice(0, STRIP);
+  const picked = selected.map((s) => tags.find((t) => t.tag === s) ?? { tag: s, count: 0, kind: "manual" as const });
+  const chip = (t: TagCount) => (
+    <button key={t.tag} type="button" className={`chip chip-tag${t.kind === "manual" ? " own" : ""}`} aria-pressed={selected.includes(t.tag)} onClick={() => onToggle(t.tag)}>
+      {t.tag}<span className="n">{t.count}</span>
+    </button>
+  );
+  return (
+    <div className="tag-strip" role="group" aria-label="Etiquetas">
+      <div className="tag-row">
+        <span className="tiny tag-label">Etiquetas</span>
+        {picked.map(chip)}
+        {!open && top.map(chip)}
+        <button type="button" className="chip chip-tag more" aria-expanded={open} onClick={() => onOpen(!open)}>
+          {open ? "Menos" : `Ver todas (${tags.length})`}
+        </button>
+      </div>
+      {open && (
+        <div className="tag-all">
+          <div>
+            <div className="tiny">Contenido</div>
+            <div className="tag-row">{content.filter((t) => !selected.includes(t.tag)).map(chip)}</div>
+          </div>
+          {measured.length > 0 && (
+            <div>
+              <div className="tiny">Formato medido</div>
+              <div className="tag-row">{measured.filter((t) => !selected.includes(t.tag)).map(chip)}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

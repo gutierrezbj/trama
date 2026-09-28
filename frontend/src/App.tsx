@@ -211,6 +211,7 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
             onSelectionsChanged={refreshMeta}
             onOpenSelection={(id) => setView({ name: "selections", id })}
             onOpenAsset={openAssetById}
+            onFilterTag={(tag) => { setExplore({ ...initialExplore, tags: [tag] }); setView({ name: "explore" }); }}
           />
         </>
       )}

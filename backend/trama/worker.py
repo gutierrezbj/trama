@@ -12,6 +12,7 @@ from pathlib import Path
 from .config import Settings
 from .db import Database, loads, new_id, now_iso
 from .importer import ImportCancelled, run_import
+from .tags import retag
 from .media import (
     RECIPES,
     MediaError,
@@ -331,6 +332,7 @@ class Worker:
                         "INSERT INTO jobs(id, kind, version_id, status, payload, created_at) VALUES (?, 'derive', ?, 'queued', '{}', ?)",
                         (new_id("job"), version_id, now),
                     )
+        retag(self.db, "a.version_id = ?", (version_id,))  # ya hay medidas: alfa, 4K, orientación…
         self.notify()
 
     def _run_derive(self, job: dict) -> None:
@@ -384,6 +386,7 @@ class Worker:
             lambda: self._cancel_requested(job_id) or self._stop.is_set(),
             lambda p, m: self._progress(job_id, p, m),
         )
+        retag(self.db, "EXISTS (SELECT 1 FROM pack_entries pe WHERE pe.version_id = v.id AND pe.pack_id = ?)", (payload["pack_id"],))
         self._progress(job_id, 1.0, f"{stats['media']} recursos catalogados ({stats['new_assets']} nuevos), {stats['unsafe']} entradas rechazadas")
         if payload.get("then_previews"):
             enqueue_previews(self.db, payload["pack_id"])

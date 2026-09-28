@@ -109,6 +109,8 @@ export interface Asset {
   description: string;
   description_source: "none" | "human" | "inferred";
   tags: string[];
+  /** Deducidas de las carpetas y de lo medido (nivel 1); no se editan a mano. */
+  auto_tags: string[];
   favorite: boolean;
   created_at: string;
   updated_at: string;
@@ -280,6 +282,12 @@ export interface Stats {
   packs: number;
 }
 
+export interface TagCount {
+  tag: string;
+  count: number;
+  kind: "manual" | "carpeta" | "medida";
+}
+
 export interface AssetFilters {
   q?: string;
   category?: string[];
@@ -295,6 +303,7 @@ export interface AssetFilters {
   pack_id?: string;
   media_kind?: string;
   duplicates?: boolean;
+  tag?: string[];
   sort?: string;
   limit?: number;
   offset?: number;
@@ -343,7 +352,7 @@ const qs = (params: Record<string, unknown>) => {
 export const api = {
   config: () => request<Config>("/api/config"),
   stats: () => request<Stats>("/api/stats"),
-  tags: () => request<{ tag: string; count: number }[]>("/api/tags"),
+  tags: () => request<TagCount[]>("/api/tags"),
   assets: (f: AssetFilters) => request<AssetList>(`/api/assets${qs(f as Record<string, unknown>)}`),
   asset: (id: string) => request<Asset>(`/api/assets/${id}`),
   patchAsset: (id: string, body: Partial<Pick<Asset, "title" | "description" | "tags" | "category" | "favorite">>) =>

@@ -313,3 +313,14 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Migración 0007: los PDF ya analizados sin soporte vuelven a la cola de vistas previas.
 - Arreglado: en un proyecto, la descarga de un recurso que sigue dentro de su pack estaba bloqueada y marcaba «original offline» sin serlo.
 - Caso real: los 56 tutoriales de Harry Allsop traen cada uno el enlace al reel del efecto (uno, además, a YouTube).
+
+## Etiquetado nivel 1 (2026-09-28)
+- Etiquetas automáticas sin IA ni coste (`trama/tags.py`), en `assets.auto_tags` (migración 0008), aparte de las humanas:
+  - Etiquetas en el inglés estándar del oficio (el de DaVinci, Premiere y los packs), decisión del propietario; cada una guarda un alias en español que solo entra en la búsqueda («humo» encuentra lo etiquetado «smoke»).
+  - De las carpetas y el nombre: ~70 etiquetas que reúnen sinónimos en inglés, español y portugués (smoke = humo/fumaça, whoosh = swish/swoosh…); las de sonido solo en audio; music o sfx según la carpeta más cercana; BPM y loop.
+  - De lo medido: alpha (usado de verdad), 4k / full hd, vertical / horizontal / square, with audio, 50-60 fps, lut.
+- Entran en la búsqueda, con su alias en español. Filtro `tag` (varias se combinan) y `/api/tags` con `kind` manual | carpeta | medida.
+- Se recalculan al terminar un análisis, al indexar un pack y, entero, al arrancar si cambia `AUTOTAG_VERSION` (tabla `meta`).
+- Interfaz: franja de etiquetas en Explorar (las más frecuentes y «Ver todas», con el formato medido aparte); en la ficha, las automáticas con trazo discontinuo y un toque filtra la biblioteca.
+- Medida sobre el catálogo real del servidor (solo lectura): el 83 % de las fichas recibe al menos una etiqueta de contenido; el resto es casi todo música sin subgénero en la carpeta. Pruebas: 40/40.
+- Pendiente (nivel 2): IA de visión para lo que las carpetas no dicen (colores, qué se ve), con coste visible.

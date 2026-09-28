@@ -13,6 +13,7 @@ interface Props {
   onSelectionsChanged: () => void;
   onOpenSelection: (id: string) => void;
   onOpenAsset?: (id: string) => void;
+  onFilterTag?: (tag: string) => void;
 }
 
 export function Inspector(props: Props) {
@@ -252,6 +253,9 @@ export function Inspector(props: Props) {
         <div>
           <h3 className="section-title">Etiquetas</h3>
           <div className="tags">
+            {asset.auto_tags.map((t) => (
+              <button type="button" className="tag auto" key={`auto-${t}`} title={`Ver todo lo etiquetado «${t}»`} onClick={() => props.onFilterTag?.(t)}>{t}</button>
+            ))}
             {asset.tags.map((t) => (
               <span className="tag" key={t}>{t}<button type="button" aria-label={`Quitar etiqueta ${t}`} onClick={() => patch({ tags: asset.tags.filter((x) => x !== t) }, "tags")}>×</button></span>
             ))}
@@ -265,6 +269,7 @@ export function Inspector(props: Props) {
               onBlur={addTag}
             />
           </div>
+          {asset.auto_tags.length > 0 && <p className="tiny" style={{ marginTop: 8 }}>Las de trazo discontinuo salen solas de las carpetas y del análisis. Toca una para ver todo lo parecido.</p>}
         </div>
 
         <div className="actions">
