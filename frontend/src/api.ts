@@ -287,7 +287,7 @@ export interface Stats {
 export interface TagCount {
   tag: string;
   count: number;
-  kind: "manual" | "carpeta" | "medida";
+  kind: "manual" | "carpeta" | "medida" | "color";
 }
 
 export interface AssetFilters {
@@ -354,7 +354,8 @@ const qs = (params: Record<string, unknown>) => {
 export const api = {
   config: () => request<Config>("/api/config"),
   stats: () => request<Stats>("/api/stats"),
-  tags: () => request<TagCount[]>("/api/tags"),
+  /** Recuento dentro de lo que se está viendo (mismos filtros que la galería). */
+  tags: (f: AssetFilters = {}) => request<TagCount[]>(`/api/tags${qs({ ...f, sort: undefined, limit: undefined, offset: undefined } as Record<string, unknown>)}`),
   assets: (f: AssetFilters) => request<AssetList>(`/api/assets${qs(f as Record<string, unknown>)}`),
   asset: (id: string) => request<Asset>(`/api/assets/${id}`),
   patchAsset: (id: string, body: Partial<Pick<Asset, "title" | "description" | "tags" | "category" | "favorite">>) =>

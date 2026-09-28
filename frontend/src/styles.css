@@ -99,6 +99,11 @@ button.status-pill:focus-visible { outline: 2px solid var(--accent); outline-off
 .chip-tag[aria-pressed="true"] .n { color: inherit; opacity: .75; }
 .chip-tag.own { border-style: dashed; }
 .chip-tag.more { background: transparent; color: var(--text-2); border-style: dashed; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid var(--line-strong); vertical-align: -1px; }
+.sw-red { background: #e5484d; } .sw-orange { background: #f76b15; } .sw-yellow { background: #ffc53d; } .sw-green { background: #46a758; }
+.sw-cyan { background: #00a2c7; } .sw-blue { background: #3e63dd; } .sw-purple { background: #8e4ec6; } .sw-magenta { background: #d6409f; }
+.sw-black-white { background: linear-gradient(90deg, #111 50%, #eee 50%); } .sw-dark { background: #161616; } .sw-bright { background: #f5f5f5; }
+.sw-black-background { background: #000; }
 .tag-all { display: grid; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface); max-height: 320px; overflow: auto; }
 .tag-all .tiny { margin-bottom: 6px; }
 .tag.auto { border-style: dashed; color: var(--text-2); background: transparent; cursor: pointer; }

@@ -332,6 +332,37 @@ def _probe_pdf(path: Path) -> dict:
     return info
 
 
+# Tonos con nombre (grados de matiz) para el color dominante de la miniatura.
+_HUES = [(15, "red"), (40, "orange"), (70, "yellow"), (160, "green"), (195, "cyan"), (255, "blue"), (290, "purple"), (345, "magenta"), (360, "red")]
+
+
+def measure_look(thumb: Path) -> dict:
+    """Color y luz de una miniatura, sin IA: reparto de tonos entre los píxeles con color,
+    fracción con color, luminosidad media percibida y fracción casi negra."""
+    with Image.open(thumb) as im:
+        small = im.convert("RGB").resize((96, 96))
+    pixels = list(small.convert("HSV").getdata())
+    lightness = list(small.convert("L").getdata())  # luminosidad percibida, no el canal más alto
+    total = len(pixels)
+    hues: dict[str, int] = {}
+    colorful = dark = 0
+    luma = float(sum(lightness))
+    for h, sat, val in pixels:
+        if val < 26:
+            dark += 1
+        if sat > 90 and val > 64:
+            colorful += 1
+            deg = h * 360 / 256
+            name = next(n for limit, n in _HUES if deg < limit)
+            hues[name] = hues.get(name, 0) + 1
+    return {
+        "hues": {k: round(v / colorful, 3) for k, v in sorted(hues.items(), key=lambda kv: -kv[1])} if colorful else {},
+        "colorful": round(colorful / total, 3),
+        "luma": round(luma / total / 255, 3),
+        "black": round(dark / total, 3),
+    }
+
+
 def plan_derivatives(analysis: dict) -> list[str]:
     kind = analysis.get("media_kind")
     if kind == "video":

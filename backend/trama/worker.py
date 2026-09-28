@@ -19,6 +19,7 @@ from .media import (
     derivative_filename,
     derivative_mime,
     generate_derivative,
+    measure_look,
     plan_derivatives,
     probe_file,
     resolve_tools,
@@ -128,7 +129,7 @@ class Worker:
     def claim(self) -> dict | None:
         with self.db.tx() as conn:
             running = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) AS n FROM jobs WHERE status = 'running' GROUP BY kind")}
-            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1, "preview_pack": 1}
+            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1, "preview_pack": 1, "look": 1}
             blocked = [k for k, lim in limits.items() if running.get(k, 0) >= lim]
             exclude = f" AND kind NOT IN ({','.join('?' for _ in blocked)})" if blocked else ""
             row = conn.execute(
@@ -178,6 +179,8 @@ class Worker:
                 self._run_backup(job)
             elif job["kind"] == "preview_pack":
                 self._run_preview_pack(job)
+            elif job["kind"] == "look":
+                self._run_look(job)
             else:
                 raise RuntimeError(f"Tipo de trabajo desconocido: {job['kind']}")
             self._finish(job_id, "done")
@@ -372,9 +375,37 @@ class Worker:
                 failures.append(f"{kind}: {exc}")
                 with self.db.tx() as conn:
                     conn.execute("UPDATE derivatives SET status = 'failed', error = ?, updated_at = ? WHERE id = ?", (str(exc), now_iso(), row["id"]))
+        if any(r["kind"] == "thumb" for r in rows) and "thumb:" not in " ".join(failures):
+            self._store_look(version_id)
+            retag(self.db, "a.version_id = ?", (version_id,))
         if failures:
             raise RuntimeError("; ".join(failures))
         self._progress(job_id, 1.0, "Derivados listos")
+
+    def _store_look(self, version_id: str) -> None:
+        """Color y luz de la miniatura (sin IA) dentro del análisis de la versión."""
+        d = self.db.one("SELECT rel_path FROM derivatives WHERE version_id = ? AND kind = 'thumb' AND status = 'ready'", (version_id,))
+        if d is None or not d["rel_path"]:
+            return
+        try:
+            look = measure_look(self.settings.derivatives_dir / d["rel_path"])
+        except Exception as exc:  # miniatura ilegible: se anota para no reintentar en bucle
+            look = {"error": str(exc)[:200]}
+        with self.db.tx() as conn:
+            conn.execute("UPDATE asset_versions SET analysis = json_set(COALESCE(analysis, '{}'), '$.look', json(?)) WHERE id = ?", (json.dumps(look), version_id))
+
+    def _run_look(self, job: dict) -> None:
+        """Mide color y luz de todas las miniaturas que aún no lo tienen y recalcula etiquetas."""
+        job_id = job["id"]
+        pending = [r["id"] for r in self.db.query(LOOK_PENDING_SQL)]
+        for i, version_id in enumerate(pending):
+            if self._cancel_requested(job_id) or self._stop.is_set():
+                raise JobCancelled()
+            self._store_look(version_id)
+            if i % 100 == 0:
+                self._progress(job_id, i / max(1, len(pending)), f"Color y luz: {i} de {len(pending)}")
+        retag(self.db)
+        self._progress(job_id, 1.0, f"Color y luz medidos en {len(pending)} miniaturas")
 
     def _run_index_pack(self, job: dict) -> None:
         from .packs import index_pack
@@ -816,6 +847,24 @@ def enqueue_import(db: Database, source_id: str, sub_path: str) -> dict:
             (new_id("job"), import_id, json.dumps({"source_id": source_id, "sub_path": sub_path}), now),
         )
     return dict(db.one("SELECT * FROM imports WHERE id = ?", (import_id,)))
+
+
+LOOK_PENDING_SQL = (
+    "SELECT v.id FROM asset_versions v JOIN derivatives d ON d.version_id = v.id AND d.kind = 'thumb' AND d.status = 'ready' "
+    "WHERE v.analysis_status = 'done' AND json_extract(v.analysis, '$.look') IS NULL"
+)
+
+
+def enqueue_look(db: Database) -> str | None:
+    """Encola la medición de color y luz si hay miniaturas sin medir y no hay otra en marcha."""
+    if db.one(LOOK_PENDING_SQL + " LIMIT 1") is None:
+        return None
+    if db.one("SELECT 1 FROM jobs WHERE kind = 'look' AND status IN ('queued','running')"):
+        return None
+    job_id = new_id("job")
+    with db.tx() as conn:
+        conn.execute("INSERT INTO jobs(id, kind, status, payload, created_at) VALUES (?, 'look', 'queued', '{}', ?)", (job_id, now_iso()))
+    return job_id
 
 
 def enqueue_reanalyze(db: Database, version_id: str) -> None:
