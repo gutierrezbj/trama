@@ -350,3 +350,26 @@ def test_pin_project_to_sidebar(env):
     assert next(x for x in client.get("/api/selections").json() if x["id"] == sid)["pinned"] == 1
     assert client.patch(f"/api/selections/{sid}", json={"notes": "hola"}).json()["pinned"] == 1
     assert client.patch(f"/api/selections/{sid}", json={"pinned": False}).json()["pinned"] == 0
+
+
+def test_connections_of_dead_threads_are_closed(tmp_path):
+    """Cada hilo nuevo abre su conexión; las de hilos que ya terminaron se cierran, así un
+    servidor que crea hilos sin parar no agota los descriptores de archivo."""
+    import threading
+
+    from trama.db import Database
+
+    db = Database(tmp_path / "c.sqlite")
+    db.migrate()
+    for _ in range(200):
+        t = threading.Thread(target=lambda: db.one("SELECT 1"))
+        t.start()
+        t.join()
+    db.one("SELECT 1")  # abre la del hilo actual y recoge las muertas
+    assert db.open_connections() <= 3
+    db.close()
+
+
+def test_health_is_public_and_checks_the_database(env):
+    r = env["client"].get("/api/health")
+    assert r.status_code == 200 and r.json()["ok"] is True

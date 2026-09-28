@@ -9,6 +9,8 @@ services:
       TRAMA_DATA_DIR: /data
       TRAMA_HOST: 0.0.0.0
       TRAMA_PORT: "8765"
+    ulimits:
+      nofile: 65536
     ports:
       - "127.0.0.1:3260:8765"
     volumes:
