@@ -290,6 +290,26 @@ export interface TagCount {
   kind: "manual" | "carpeta" | "medida" | "color";
 }
 
+export interface AiResult {
+  description: string;
+  tags: string[];
+  cost_usd: number;
+  seconds: number;
+  error: string | null;
+}
+
+export interface AiRun {
+  id: string;
+  status: "queued" | "running" | "done" | "failed";
+  created_at: string;
+  models: string[];
+  visual_total: number;
+  summary: { model: string; done: number; errors: number; cost_usd: number; avg_seconds: number | null; projected_cost_usd: number | null; projected_hours: number | null; wins: number }[];
+  items: { version_id: string; asset_id: string; title: string; category: string; auto_tags: string[]; sheet_url: string; results: Record<string, AiResult>; vote: string | null }[];
+  ties: number;
+  none: number;
+}
+
 export interface AssetFilters {
   q?: string;
   category?: string[];
@@ -380,6 +400,12 @@ export const api = {
   releasePack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ released: number }>(`/api/packs/${id}/release`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
   storage: () => request<Storage>("/api/storage"),
+
+  aiStatus: () => request<{ openai: boolean; local: boolean; default_models: string[] }>("/api/ai/status"),
+  aiTest: (models: string[] = [], size = 50) => request<{ run_id: string; models: string[] }>("/api/ai/test", { method: "POST", body: JSON.stringify({ models, size }) }),
+  aiLatest: () => request<AiRun | null>("/api/ai/runs/latest"),
+  aiVote: (runId: string, versionId: string, winner: string) =>
+    request<{ ok: boolean }>(`/api/ai/runs/${runId}/vote`, { method: "POST", body: JSON.stringify({ version_id: versionId, winner }) }),
 
   authStatus: () => request<AuthStatus>("/api/auth/status"),
   login: (password: string) => request<{ ok: boolean }>("/api/auth/login", { method: "POST", body: JSON.stringify({ password }) }),

@@ -337,3 +337,11 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - La franja de etiquetas cuenta dentro de lo que se ve (`/api/tags` acepta los mismos filtros que la galería): en VFX ya no salen music ni sfx. Fila «Color y luz» con muestras de color.
 - Visto de paso: algunas miniaturas con alfa salen vacías (solo damero) porque el fotograma al 35 % cae antes del efecto (p. ej. un estallido de sangre). Pendiente: elegir el fotograma con más cobertura de alfa.
 - Pruebas: 45/45.
+
+## Nivel 2, paso B: prueba de IA de visión (2026-09-28)
+- `trama/vision.py`: hoja de 3 fotogramas (20/50/80 %) sacada de la vista previa ya generada (nada se baja del pack); se envía con `detail: low` a modelos compatibles con la API de OpenAI: OpenAI (`TRAMA_OPENAI_API_KEY`) o un modelo local gratis (`TRAMA_LOCAL_VISION_URL`, LM Studio del Mac por Tailscale). Devuelve descripción en español y 3-8 etiquetas en inglés del oficio; las pistas de carpeta van en el prompt.
+- Coste medido con los tokens reales de cada respuesta y la tabla `PRICES` (tarifa estándar de OpenAI a 28 sep 2026: gpt-6-luna 0,10/0,50 $ por millón; gpt-5.4-mini 0,75/4,50).
+- Migración 0010: `ai_runs`, `ai_labels`, `ai_votes`. Trabajo `ai_test` reanudable (salta lo ya respondido); el fallo de un modelo no para la prueba.
+- Página «IA de visión» (Ajustes): lanzar la prueba de 50 recursos repartidos por categorías, comparar lado a lado, votar el mejor, y ver coste y tiempo por modelo proyectados a toda la biblioteca.
+- Sonda previa (Sun Burst): gpt-6-luna 1,9 s y ~0,00007 $; gpt-5.4-mini 1,3 s y ~0,0005 $; Qwen3-VL 8B en el Mac ~14 s la primera (carga) y 0 $.
+- Pruebas: 47/47 (modelos simulados, sin red ni gasto).

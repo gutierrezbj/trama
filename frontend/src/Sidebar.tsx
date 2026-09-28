@@ -1,7 +1,7 @@
 import { CATEGORY_LABELS, type Named, type Stats } from "./api";
-import { CATEGORY_ICONS, IconCloud, IconFolder, IconHeart, IconPlus, IconSearch, IconSelection } from "./icons";
+import { CATEGORY_ICONS, IconCloud, IconSparkle, IconFolder, IconHeart, IconPlus, IconSearch, IconSelection } from "./icons";
 
-export type ViewName = "explore" | "collections" | "selections" | "favorites" | "import" | "copias";
+export type ViewName = "explore" | "collections" | "selections" | "favorites" | "import" | "copias" | "ia";
 export interface View {
   name: ViewName;
   id?: string;
@@ -55,6 +55,7 @@ export function Sidebar({ view, stats, pinned = [], categories, open, onNavigate
         <div className="nav-section">Ajustes</div>
         <button type="button" className="nav-item" aria-current={view.name === "import" ? "page" : undefined} onClick={() => onNavigate({ name: "import" })}><IconPlus />Fuentes y packs</button>
         <button type="button" className="nav-item" aria-current={view.name === "copias" ? "page" : undefined} onClick={() => onNavigate({ name: "copias" })}><IconCloud />Drive y copias</button>
+        <button type="button" className="nav-item" aria-current={view.name === "ia" ? "page" : undefined} onClick={() => onNavigate({ name: "ia" })}><IconSparkle />IA de visión</button>
       </div>
     </nav>
   );
