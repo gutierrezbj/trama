@@ -104,6 +104,8 @@ export interface Asset {
   id: string;
   title: string;
   original_title: string;
+  /** file: del nombre del archivo; folder: armado con las carpetas; human: puesto a mano. */
+  title_source: "file" | "folder" | "human";
   category: string;
   category_source: "inferred" | "human";
   description: string;

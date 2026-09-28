@@ -112,6 +112,7 @@ export function Inspector(props: Props) {
         <h2 ref={headRef}>
           <input
             aria-label="Título visible"
+            title={asset.title_source === "folder" ? `Título armado con las carpetas: el archivo se llama «${asset.original_title}». Puedes cambiarlo.` : undefined}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={() => title.trim() && title !== asset.title && patch({ title }, "title")}

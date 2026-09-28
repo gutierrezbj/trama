@@ -154,6 +154,7 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         "id": asset_id,
         "title": row["title"],
         "original_title": row["original_title"],
+        "title_source": row.get("title_source") or "file",
         "category": row["category"],
         "category_source": row["category_source"],
         "description": row["description"],
@@ -1055,6 +1056,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         title = body.title.strip() if body.title is not None else row["title"]
         if not title:
             raise HTTPException(400, "El título no puede quedar vacío")
+        title_source = "human" if title != row["title"] else row["title_source"]
         description = body.description.strip() if body.description is not None else row["description"]
         tags = loads(row["tags"], [])
         if body.tags is not None:
@@ -1077,8 +1079,8 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         favorite = int(body.favorite) if body.favorite is not None else row["favorite"]
         with st.db.tx() as conn:
             conn.execute(
-                "UPDATE assets SET title = ?, description = ?, description_source = ?, tags = ?, category = ?, category_source = ?, favorite = ?, updated_at = ? WHERE id = ?",
-                (title, description, description_source, json.dumps(tags, ensure_ascii=False), category, category_source, favorite, now_iso(), asset_id),
+                "UPDATE assets SET title = ?, title_source = ?, description = ?, description_source = ?, tags = ?, category = ?, category_source = ?, favorite = ?, updated_at = ? WHERE id = ?",
+                (title, title_source, description, description_source, json.dumps(tags, ensure_ascii=False), category, category_source, favorite, now_iso(), asset_id),
             )
         retag(st.db, "a.id = ?", (asset_id,))  # texto de búsqueda con etiquetas propias y automáticas
         return serialize_asset(st, get_asset_row(st.db, asset_id), detail=True)

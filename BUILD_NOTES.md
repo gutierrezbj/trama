@@ -324,3 +324,8 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Interfaz: franja de etiquetas en Explorar (las más frecuentes y «Ver todas», con el formato medido aparte); en la ficha, las automáticas con trazo discontinuo y un toque filtra la biblioteca.
 - Medida sobre el catálogo real del servidor (solo lectura): el 83 % de las fichas recibe al menos una etiqueta de contenido; el resto es casi todo música sin subgénero en la carpeta. Pruebas: 40/40.
 - Pendiente (nivel 2): IA de visión para lo que las carpetas no dicen (colores, qué se ve), con coste visible.
+
+## Títulos desde las carpetas (2026-09-28)
+- Muchos packs nombran los archivos «2.mov», «F.mov», «_12.mp4» o «195.cube»; lo que dice qué son está en la carpeta. Cuando el nombre no tiene ninguna palabra de tres letras, el título se arma con las carpetas: «Color Transitions · 12», «CRT Fonts · Classic · F», «LUT 195». Se saltan carpetas genéricas (raíces de pack, UPPER CASE, PNG, 4K, V1…); una carpeta de una sola palabra toma el contexto de la de arriba.
+- `assets.title_source` (migración 0009): file | folder | human. Lo puesto a mano nunca se recalcula. Se aplica en el mismo recalculo que las etiquetas (AUTOTAG_VERSION 3). En la ficha, el título armado lleva un aviso con el nombre real del archivo.
+- Catálogo real (solo lectura): 2.447 de 10.896 títulos mejoran. Pruebas: 42/42.

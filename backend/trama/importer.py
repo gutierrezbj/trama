@@ -58,6 +58,52 @@ def clean_title(file_name: str) -> str:
     return stem or file_name
 
 
+_GENERIC_FOLDER = re.compile(
+    r"^(pack edicion de videos|mega pack edicion|pack maestro|master bundle|upper case|lower case|special characters|"
+    r"png|jpg|mov|mp4|wav|mp3|4k|4k mp4|1080p?|hd|black|white|color|grayscale|blackwhite|images?|data|system|"
+    r"v ?\.? ?\d+|pack \d+|pacote \d+|volume \d+|vol \d+|overlay|originales?|\d+)$"
+)
+_ACRONYM = re.compile(r"^[A-Z0-9]{2,3}$")
+
+
+def _has_words(text: str) -> bool:
+    """Un nombre «dice algo» si tiene al menos una palabra de tres letras."""
+    return re.search(r"[^\W\d_]{3,}", text) is not None
+
+
+def _folder_label(folder: str) -> str:
+    folder = re.sub(r"-\d{8}T\d{6}Z-\d+-?\d*$", "", folder).strip()  # sufijo de descarga de Drive
+    words = [w if _ACRONYM.match(w) or not w.isupper() else w.capitalize() for w in re.sub(r"[_]+", " ", folder).split()]
+    return " ".join(words)
+
+
+def smart_title(file_name: str, rel_path: str) -> str | None:
+    """Título armado con las carpetas cuando el nombre del archivo no dice nada («2.mov»,
+    «F.mov», «195.cube»): «Glass Crash · 2», «CRT Fonts · Classic · F», «LUT 195».
+    Devuelve None si el nombre ya sirve."""
+    stem = clean_title(file_name)
+    if _has_words(stem):
+        return None
+    if Path(file_name).suffix.lower() in LUT_EXT:
+        return f"LUT {stem}"
+    folders = [f for f in rel_path.replace("\\", "/").split("!/")[-1].split("/")[:-1] if f]
+    picked: list[str] = []
+    for folder in reversed(folders):
+        label = _folder_label(folder)
+        if not label or _GENERIC_FOLDER.match(normalize_text(label)) or not _has_words(label):
+            continue
+        if picked and normalize_text(label) == normalize_text(picked[0]):
+            continue
+        picked.insert(0, label)
+        # Una carpeta con nombre propio basta («Glass Crash»); una palabra suelta («Classic»)
+        # pide el contexto de la de arriba («CRT Fonts · Classic»).
+        if len(picked) == 2 or len(label.split()) >= 2:
+            break
+    if not picked:
+        return None
+    return " · ".join(picked + [stem])
+
+
 def build_search_text(title: str, original_title: str, description: str, tags: list[str], rel_path: str) -> str:
     return normalize_text(" ".join([title, original_title, description, " ".join(tags), rel_path]))
 
