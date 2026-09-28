@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "./api";
+import { api, type AiFull } from "./api";
 import { useAsync, useInterval } from "./hooks";
 
 /** Nombre legible del modelo: «local:qwen/qwen3-vl-8b» → «Qwen3-VL 8B · Mac (gratis)». */
@@ -23,10 +23,25 @@ function money(v: number | null | undefined): string {
 export function IAView({ onOpenAsset }: { onOpenAsset: (id: string) => void }) {
   const status = useAsync(() => api.aiStatus(), []);
   const run = useAsync(() => api.aiLatest(), []);
+  const full = useAsync(() => api.aiFullLatest(), []);
   const [msg, setMsg] = useState<string | null>(null);
+  const [fullModel, setFullModel] = useState("openai:gpt-6-luna");
+  const [cap, setCap] = useState(2);
   const r = run.data;
+  const f = full.data;
   const running = !!r && (r.status === "queued" || r.status === "running");
+  const fullRunning = !!f && (f.status === "queued" || f.status === "running");
   useInterval(() => run.reload(true), 3000, running);
+  useInterval(() => full.reload(true), 3000, fullRunning);
+  const launchFull = async () => {
+    setMsg(null);
+    try {
+      await api.aiFull(fullModel, cap);
+      full.reload(true);
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
 
   const start = async () => {
     setMsg(null);
@@ -102,6 +117,20 @@ export function IAView({ onOpenAsset }: { onOpenAsset: (id: string) => void }) {
         )}
       </div>
 
+      {r && r.status === "done" && (
+        <FullPanel
+          full={f}
+          running={fullRunning || running}
+          summary={r.summary}
+          total={r.visual_total}
+          model={fullModel}
+          cap={cap}
+          onModel={setFullModel}
+          onCap={setCap}
+          onLaunch={launchFull}
+        />
+      )}
+
       {r?.items.map((it, i) => (
         <article key={it.version_id} className="ai-item">
           <div className="ai-item-head">
@@ -138,5 +167,52 @@ export function IAView({ onOpenAsset }: { onOpenAsset: (id: string) => void }) {
         </article>
       ))}
     </>
+  );
+}
+
+/** Pasada por toda la biblioteca con el modelo elegido y un tope de gasto. */
+function FullPanel({ full, running, summary, total, model, cap, onModel, onCap, onLaunch }: {
+  full: AiFull | null;
+  running: boolean;
+  summary: { model: string; projected_cost_usd: number | null; projected_hours: number | null }[];
+  total: number;
+  model: string;
+  cap: number;
+  onModel: (m: string) => void;
+  onCap: (n: number) => void;
+  onLaunch: () => void;
+}) {
+  const est = summary.find((m) => m.model === model);
+  const active = !!full && (full.status === "queued" || full.status === "running");
+  return (
+    <div className="panel" style={{ marginBottom: 18 }}>
+      <h2>Toda la biblioteca</h2>
+      {full && (
+        <>
+          <p className="tiny">
+            {modelName(full.model)} · {active ? "en marcha" : full.status === "done" ? "terminada" : full.status === "stopped" ? "parada por el tope de gasto" : full.status}
+            {" · "}{full.done} recursos · {money(full.cost_usd)} gastados{full.errors ? ` · ${full.errors} errores` : ""}
+          </p>
+          {active && <div className="progress"><div style={{ width: `${Math.round(full.progress * 100)}%` }} /></div>}
+          {full.message && <p className="tiny">{full.message}</p>}
+        </>
+      )}
+      {!active && (
+        <div className="ai-head">
+          <label className="tiny">Modelo{" "}
+            <select value={model} onChange={(e) => onModel(e.target.value)}>
+              {summary.map((m) => <option key={m.model} value={m.model}>{modelName(m.model)}</option>)}
+            </select>
+          </label>
+          <label className="tiny">Tope de gasto{" "}
+            <select value={cap} onChange={(e) => onCap(Number(e.target.value))}>
+              {[1, 2, 5, 10].map((n) => <option key={n} value={n}>{n} $</option>)}
+            </select>
+          </label>
+          <span className="tiny">Estimado para {total}: {money(est?.projected_cost_usd)} · {est?.projected_hours ?? "—"} h a un recurso por vez (va de 4 en 4). Lo ya etiquetado por ese modelo se salta.</span>
+          <button type="button" className="btn primary" disabled={running} onClick={onLaunch}>Etiquetar toda la biblioteca</button>
+        </div>
+      )}
+    </div>
   );
 }

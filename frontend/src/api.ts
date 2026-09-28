@@ -113,6 +113,9 @@ export interface Asset {
   tags: string[];
   /** Deducidas de las carpetas y de lo medido (nivel 1); no se editan a mano. */
   auto_tags: string[];
+  /** Puestas por la IA de visión (nivel 2) y el modelo que las puso. */
+  ai_tags: string[];
+  ai_model: string | null;
   favorite: boolean;
   created_at: string;
   updated_at: string;
@@ -287,7 +290,7 @@ export interface Stats {
 export interface TagCount {
   tag: string;
   count: number;
-  kind: "manual" | "carpeta" | "medida" | "color";
+  kind: "manual" | "carpeta" | "medida" | "color" | "ia";
 }
 
 export interface AiResult {
@@ -308,6 +311,19 @@ export interface AiRun {
   items: { version_id: string; asset_id: string; title: string; category: string; auto_tags: string[]; sheet_url: string; results: Record<string, AiResult>; vote: string | null }[];
   ties: number;
   none: number;
+}
+
+export interface AiFull {
+  id: string;
+  status: "queued" | "running" | "done" | "stopped" | "failed";
+  model: string;
+  created_at: string;
+  finished_at: string | null;
+  done: number;
+  errors: number;
+  cost_usd: number;
+  progress: number;
+  message: string | null;
 }
 
 export interface AssetFilters {
@@ -405,6 +421,8 @@ export const api = {
   aiTest: (models: string[] = [], size = 50) => request<{ run_id: string; models: string[] }>("/api/ai/test", { method: "POST", body: JSON.stringify({ models, size }) }),
   aiLatest: () => request<AiRun | null>("/api/ai/runs/latest"),
   aiRetry: (runId: string) => request<{ retrying: number }>(`/api/ai/runs/${runId}/retry`, { method: "POST" }),
+  aiFull: (model: string, maxUsd: number) => request<{ run_id: string; pending: number }>("/api/ai/full", { method: "POST", body: JSON.stringify({ model, max_usd: maxUsd }) }),
+  aiFullLatest: () => request<AiFull | null>("/api/ai/full/latest"),
   aiVote: (runId: string, versionId: string, winner: string) =>
     request<{ ok: boolean }>(`/api/ai/runs/${runId}/vote`, { method: "POST", body: JSON.stringify({ version_id: versionId, winner }) }),
 

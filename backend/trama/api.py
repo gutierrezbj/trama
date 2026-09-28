@@ -161,6 +161,8 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         "description_source": row["description_source"],
         "tags": loads(row["tags"], []),
         "auto_tags": loads(row.get("auto_tags"), []),
+        "ai_tags": loads(row.get("ai_tags"), []),
+        "ai_model": row.get("ai_model"),
         "favorite": bool(row["favorite"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -262,6 +264,11 @@ class NamedPatch(BaseModel):
 class AiTestCreate(BaseModel):
     models: list[str] = Field(default_factory=list)
     size: int = Field(50, ge=5, le=200)
+
+
+class AiFullCreate(BaseModel):
+    model: str = "openai:gpt-6-luna"
+    max_usd: float = Field(2.0, gt=0, le=50)
 
 
 class AiVote(BaseModel):
@@ -994,8 +1001,8 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         if duplicates:
             where.append("(a.duplicate_of IS NOT NULL OR (SELECT COUNT(*) FROM locations l WHERE l.version_id = v.id) > 1)")
         for t in [x for x in (tag or "").split(",") if x]:
-            where.append("(EXISTS (SELECT 1 FROM json_each(a.auto_tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.tags) WHERE value = ?))")
-            params += [t, t]
+            where.append("(EXISTS (SELECT 1 FROM json_each(a.auto_tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.ai_tags) WHERE value = ?))")
+            params += [t, t, t]
         if favorite is not None:
             where.append("a.favorite = ?")
             params.append(1 if favorite else 0)
@@ -1084,10 +1091,15 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag)
         counts: dict[str, int] = {}
         manual: set[str] = set()
-        for r in st.db.query(f"SELECT a.tags, a.auto_tags FROM assets a JOIN asset_versions v ON v.id = a.version_id{clause}", params):
+        ai: set[str] = set()
+        folder: set[str] = set()
+        for r in st.db.query(f"SELECT a.tags, a.auto_tags, a.ai_tags FROM assets a JOIN asset_versions v ON v.id = a.version_id{clause}", params):
             own = loads(r["tags"], [])
             manual.update(own)
-            for t in set(own) | set(loads(r["auto_tags"], [])):
+            seen = loads(r["ai_tags"], [])
+            ai.update(seen)
+            folder.update(loads(r["auto_tags"], []))
+            for t in set(own) | set(loads(r["auto_tags"], [])) | set(seen):
                 counts[t] = counts.get(t, 0) + 1
 
         def kind(t: str) -> str:
@@ -1095,6 +1107,10 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
                 return "manual"
             if t in COLOR_TAGS:
                 return "color"
+            if t in MEASURED or t.endswith((" fps", " bpm")):
+                return "medida"
+            if t in ai and t not in folder:
+                return "ia"
             return "medida" if t in MEASURED or t.endswith((" fps", " bpm")) else "carpeta"
 
         return [{"tag": t, "count": n, "kind": kind(t)} for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
@@ -1175,6 +1191,29 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
                          (new_id("job"), json.dumps({"run_id": run_id}), now_iso()))
         st.worker.notify()
         return {"retrying": n}
+
+    @app.post("/api/ai/full", status_code=202)
+    def ai_full(body: AiFullCreate, st: AppState = Depends(S)):
+        from .vision import create_full_run, pending_for_full
+
+        if not body.model.startswith(("openai:", "local:")):
+            raise HTTPException(400, "Modelo no válido")
+        if st.db.one("SELECT 1 FROM ai_runs WHERE status IN ('queued','running')"):
+            raise HTTPException(409, "Ya hay una pasada o prueba en marcha")
+        run_id = create_full_run(st.db, body.model, body.max_usd)
+        st.worker.notify()
+        return {"run_id": run_id, "pending": len(pending_for_full(st.db, body.model))}
+
+    @app.get("/api/ai/full/latest")
+    def ai_full_latest(st: AppState = Depends(S)):
+        run = st.db.one("SELECT * FROM ai_runs WHERE kind = 'full' ORDER BY created_at DESC LIMIT 1")
+        if run is None:
+            return None
+        agg = st.db.one("SELECT COUNT(*) AS n, SUM(error IS NOT NULL) AS errors, COALESCE(SUM(cost_usd), 0) AS cost FROM ai_labels WHERE run_id = ?", (run["id"],))
+        job = st.db.one("SELECT status, progress, message FROM jobs WHERE kind = 'ai_full' AND payload LIKE ? ORDER BY created_at DESC LIMIT 1", (f"%{run['id']}%",))
+        return {"id": run["id"], "status": run["status"], "model": loads(run["models"], [""])[0], "created_at": run["created_at"],
+                "finished_at": run["finished_at"], "done": agg["n"], "errors": agg["errors"] or 0, "cost_usd": round(agg["cost"], 4),
+                "progress": job["progress"] if job else 0, "message": job["message"] if job else None}
 
     @app.post("/api/ai/runs/{run_id}/vote")
     def ai_vote(run_id: str, body: AiVote, st: AppState = Depends(S)):

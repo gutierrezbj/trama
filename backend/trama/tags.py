@@ -207,7 +207,7 @@ def compute_auto_tags(path: str, media_kind: str, ext: str, analysis: dict | Non
 
 
 _ROWS = (
-    "SELECT a.id, a.title, a.title_source, a.original_title, a.description, a.tags, a.auto_tags, a.search_text, v.media_kind, v.ext, v.analysis, "
+    "SELECT a.id, a.title, a.title_source, a.original_title, a.description, a.tags, a.auto_tags, a.ai_tags, a.search_text, v.media_kind, v.ext, v.analysis, "
     "(SELECT COALESCE(p.label || '/' || e.inner_path, l.rel_path) FROM locations l "
     " LEFT JOIN pack_entries e ON e.id = l.pack_entry_id LEFT JOIN packs p ON p.id = e.pack_id "
     " WHERE l.version_id = v.id ORDER BY (l.kind = 'pack') DESC, l.last_seen_at DESC LIMIT 1) AS path "
@@ -215,9 +215,9 @@ _ROWS = (
 )
 
 
-def search_text_for(title: str, original_title: str, description: str, tags: list[str], auto_tags: list[str], path: str) -> str:
+def search_text_for(title: str, original_title: str, description: str, tags: list[str], auto_tags: list[str], path: str, ai_tags: list[str] | None = None) -> str:
     aliases = [ALIASES.get(t, "") for t in auto_tags]
-    return normalize_text(" ".join([title, original_title, description, " ".join(tags), " ".join(auto_tags), " ".join(aliases), path or ""]))
+    return normalize_text(" ".join([title, original_title, description, " ".join(tags), " ".join(auto_tags), " ".join(aliases), " ".join(ai_tags or []), path or ""]))
 
 
 def retag(db: Database, where: str = "", params: tuple = ()) -> int:
@@ -235,7 +235,7 @@ def retag(db: Database, where: str = "", params: tuple = ()) -> int:
         if source != "human":
             smart = smart_title(r["original_title"], path)
             title, source = (smart, "folder") if smart else (clean_title(r["original_title"]), "file")
-        search = search_text_for(title, r["original_title"], r["description"], loads(r["tags"], []), auto, r["path"] or "")
+        search = search_text_for(title, r["original_title"], r["description"], loads(r["tags"], []), auto, r["path"] or "", loads(r["ai_tags"], []))
         auto_json = json.dumps(auto, ensure_ascii=False)
         if auto_json != r["auto_tags"] or search != r["search_text"] or title != r["title"] or source != r["title_source"]:
             changes.append((auto_json, search, title, source, r["id"]))
