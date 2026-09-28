@@ -8,13 +8,14 @@ import { IconLogout, IconMenu, IconSearch } from "./icons";
 import { ImportView, PackDetail } from "./Import";
 import { Login } from "./Login";
 import { Inspector } from "./Inspector";
+import { IAView } from "./IA";
 import { SelectionDetail, SelectionsList } from "./Selections";
 import { Sidebar, type View } from "./Sidebar";
 
 function readHash(): View {
   const h = window.location.hash.replace(/^#\/?/, "").split("?")[0];
   const [name, id] = h.split("/");
-  if (name === "collections" || name === "selections" || name === "favorites" || name === "import" || name === "copias") return { name, id: id || undefined };
+  if (name === "collections" || name === "selections" || name === "favorites" || name === "import" || name === "copias" || name === "ia") return { name, id: id || undefined };
   if (name === "category" && id) return { name: "explore", category: id };
   return { name: "explore" };
 }
@@ -153,6 +154,9 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
       break;
     case "copias":
       body = <CopiasView config={config} busy={busy} notice={driveNotice} />;
+      break;
+    case "ia":
+      body = <IAView onOpenAsset={openAssetById} />;
       break;
     case "import":
       body = view.id

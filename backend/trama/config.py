@@ -120,6 +120,9 @@ class Settings:
     # E3 — respaldos
     backup_dir: Path | None = None            # por defecto <data_dir>/respaldos
     backup_keep: int = 5
+    # Nivel 2 — IA de visión (opcional)
+    openai_api_key: str | None = None         # solo en el .env del servidor, nunca en el repo
+    local_vision_url: str | None = None       # servidor compatible OpenAI (LM Studio), p. ej. http://<mac>:1234/v1
     env_file: Path | None = None
     extra: dict[str, str] = field(default_factory=dict)
 
@@ -214,6 +217,8 @@ def load_settings(env_file: Path | None = None, overrides: dict[str, str] | None
         drive_auth_base=values.get("TRAMA_DRIVE_AUTH_BASE", "https://accounts.google.com/o/oauth2/v2/auth"),
         backup_dir=Path(values["TRAMA_BACKUP_DIR"]).expanduser() if values.get("TRAMA_BACKUP_DIR") else None,
         backup_keep=max(1, int(values.get("TRAMA_BACKUP_KEEP", "5"))),
+        openai_api_key=values.get("TRAMA_OPENAI_API_KEY") or None,
+        local_vision_url=(values.get("TRAMA_LOCAL_VISION_URL") or "").rstrip("/") or None,
         env_file=env_file if env_file.exists() else None,
         extra=values,
     )

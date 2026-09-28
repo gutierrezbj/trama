@@ -129,7 +129,7 @@ class Worker:
     def claim(self) -> dict | None:
         with self.db.tx() as conn:
             running = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) AS n FROM jobs WHERE status = 'running' GROUP BY kind")}
-            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1, "preview_pack": 1, "look": 1}
+            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1, "preview_pack": 1, "look": 1, "ai_test": 1}
             blocked = [k for k, lim in limits.items() if running.get(k, 0) >= lim]
             exclude = f" AND kind NOT IN ({','.join('?' for _ in blocked)})" if blocked else ""
             row = conn.execute(
@@ -181,6 +181,8 @@ class Worker:
                 self._run_preview_pack(job)
             elif job["kind"] == "look":
                 self._run_look(job)
+            elif job["kind"] == "ai_test":
+                self._run_ai_test(job)
             else:
                 raise RuntimeError(f"Tipo de trabajo desconocido: {job['kind']}")
             self._finish(job_id, "done")
@@ -393,6 +395,50 @@ class Worker:
             look = {"error": str(exc)[:200]}
         with self.db.tx() as conn:
             conn.execute("UPDATE asset_versions SET analysis = json_set(COALESCE(analysis, '{}'), '$.look', json(?)) WHERE id = ?", (json.dumps(look), version_id))
+
+    def _run_ai_test(self, job: dict) -> None:
+        """Pasa la muestra de la prueba por cada modelo. Reanudable: salta lo ya respondido."""
+        from .vision import VisionError, contact_sheet, describe, hints_for, sheet_path
+
+        job_id = job["id"]
+        run_id = loads(job["payload"], {})["run_id"]
+        run = self.db.one("SELECT * FROM ai_runs WHERE id = ?", (run_id,))
+        models, sample = loads(run["models"], []), loads(run["sample"], [])
+        with self.db.tx() as conn:
+            conn.execute("UPDATE ai_runs SET status = 'running' WHERE id = ?", (run_id,))
+        done = {(r["version_id"], r["model"]) for r in self.db.query("SELECT version_id, model FROM ai_labels WHERE run_id = ?", (run_id,))}
+        total = max(1, len(sample) * len(models))
+        import httpx
+
+        with httpx.Client(timeout=180) as client:
+            for i, version_id in enumerate(sample):
+                try:
+                    sheet = contact_sheet(self.settings, self.db, version_id, sheet_path(self.settings, version_id))
+                except Exception as exc:
+                    sheet, sheet_error = None, str(exc)
+                hints = hints_for(self.db, version_id)
+                for j, model in enumerate(models):
+                    if self._cancel_requested(job_id) or self._stop.is_set():
+                        raise JobCancelled()
+                    if (version_id, model) in done:
+                        continue
+                    self._progress(job_id, (i * len(models) + j) / total, f"Recurso {i + 1} de {len(sample)} · {model.split(':', 1)[-1]}")
+                    try:
+                        if sheet is None:
+                            raise VisionError(sheet_error)
+                        res, error = describe(self.settings, model, sheet, hints, client), None
+                    except Exception as exc:  # un fallo de un modelo no para la prueba
+                        res, error = {}, str(exc)[:300]
+                    with self.db.tx() as conn:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO ai_labels(id, run_id, version_id, model, description, tags, input_tokens, output_tokens, cost_usd, seconds, error, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (new_id("ail"), run_id, version_id, model, res.get("description", ""), json.dumps(res.get("tags", []), ensure_ascii=False),
+                             res.get("input_tokens", 0), res.get("output_tokens", 0), res.get("cost_usd", 0), res.get("seconds", 0), error, now_iso()),
+                        )
+        with self.db.tx() as conn:
+            conn.execute("UPDATE ai_runs SET status = 'done', finished_at = ? WHERE id = ?", (now_iso(), run_id))
+        self._progress(job_id, 1.0, f"Prueba terminada: {len(sample)} recursos × {len(models)} modelos")
 
     def _run_look(self, job: dict) -> None:
         """Mide color y luz de todas las miniaturas que aún no lo tienen y recalcula etiquetas."""

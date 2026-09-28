@@ -259,6 +259,16 @@ class NamedPatch(BaseModel):
     pinned: bool | None = None
 
 
+class AiTestCreate(BaseModel):
+    models: list[str] = Field(default_factory=list)
+    size: int = Field(50, ge=5, le=200)
+
+
+class AiVote(BaseModel):
+    version_id: str
+    winner: str
+
+
 class ItemPatch(BaseModel):
     note: str | None = None
 
@@ -1088,6 +1098,83 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             return "medida" if t in MEASURED or t.endswith((" fps", " bpm")) else "carpeta"
 
         return [{"tag": t, "count": n, "kind": kind(t)} for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+    # ---- nivel 2: IA de visión ---------------------------------------------------
+    @app.get("/api/ai/status")
+    def ai_status(st: AppState = Depends(S)):
+        from .vision import DEFAULT_TEST_MODELS
+
+        return {"openai": bool(st.settings.openai_api_key), "local": bool(st.settings.local_vision_url), "default_models": DEFAULT_TEST_MODELS}
+
+    @app.post("/api/ai/test", status_code=202)
+    def ai_test(body: AiTestCreate, st: AppState = Depends(S)):
+        from .vision import DEFAULT_TEST_MODELS, create_test_run
+
+        models = body.models or DEFAULT_TEST_MODELS
+        models = [m for m in models if (m.startswith("openai:") and st.settings.openai_api_key) or (m.startswith("local:") and st.settings.local_vision_url)]
+        if not models:
+            raise HTTPException(400, "No hay ningún modelo configurado (clave de OpenAI o LM Studio del Mac)")
+        if st.db.one("SELECT 1 FROM ai_runs WHERE status IN ('queued','running')"):
+            raise HTTPException(409, "Ya hay una prueba en marcha")
+        run_id = create_test_run(st.db, models, body.size)
+        st.worker.notify()
+        return {"run_id": run_id, "models": models}
+
+    @app.get("/api/ai/runs/latest")
+    def ai_latest(st: AppState = Depends(S)):
+        from .vision import VISUAL_SQL
+
+        run = st.db.one("SELECT * FROM ai_runs WHERE kind = 'test' ORDER BY created_at DESC LIMIT 1")
+        if run is None:
+            return None
+        models, sample = loads(run["models"], []), loads(run["sample"], [])
+        labels: dict[str, dict] = {}
+        for r in st.db.query("SELECT * FROM ai_labels WHERE run_id = ?", (run["id"],)):
+            labels.setdefault(r["version_id"], {})[r["model"]] = {
+                "description": r["description"], "tags": loads(r["tags"], []), "cost_usd": r["cost_usd"],
+                "seconds": r["seconds"], "error": r["error"],
+            }
+        votes = {r["version_id"]: r["winner"] for r in st.db.query("SELECT version_id, winner FROM ai_votes WHERE run_id = ?", (run["id"],))}
+        items = []
+        for vid in sample:
+            a = st.db.one("SELECT id, title, category, auto_tags FROM assets WHERE version_id = ? LIMIT 1", (vid,))
+            if a is None:
+                continue
+            items.append({"version_id": vid, "asset_id": a["id"], "title": a["title"], "category": a["category"],
+                          "auto_tags": loads(a["auto_tags"], []), "sheet_url": f"/api/ai/sheet/{vid}",
+                          "results": labels.get(vid, {}), "vote": votes.get(vid)})
+        visual_total = st.db.one(f"SELECT COUNT(*) AS n FROM ({VISUAL_SQL})")["n"]
+        summary = []
+        for m in models:
+            rows = [labels[v][m] for v in labels if m in labels[v]]
+            ok = [x for x in rows if not x["error"]]
+            cost = sum(x["cost_usd"] for x in ok)
+            secs = sum(x["seconds"] for x in ok)
+            summary.append({
+                "model": m, "done": len(rows), "errors": len(rows) - len(ok), "cost_usd": round(cost, 5),
+                "avg_seconds": round(secs / len(ok), 2) if ok else None,
+                "projected_cost_usd": round(cost / len(ok) * visual_total, 4) if ok else None,
+                "projected_hours": round(secs / len(ok) * visual_total / 3600, 1) if ok else None,
+                "wins": sum(1 for w in votes.values() if w == m),
+            })
+        return {"id": run["id"], "status": run["status"], "created_at": run["created_at"], "models": models,
+                "visual_total": visual_total, "summary": summary, "items": items,
+                "ties": sum(1 for w in votes.values() if w == "tie"), "none": sum(1 for w in votes.values() if w == "none")}
+
+    @app.post("/api/ai/runs/{run_id}/vote")
+    def ai_vote(run_id: str, body: AiVote, st: AppState = Depends(S)):
+        with st.db.tx() as conn:
+            conn.execute("INSERT OR REPLACE INTO ai_votes(run_id, version_id, winner, voted_at) VALUES (?, ?, ?, ?)", (run_id, body.version_id, body.winner, now_iso()))
+        return {"ok": True}
+
+    @app.get("/api/ai/sheet/{version_id}")
+    def ai_sheet(version_id: str, st: AppState = Depends(S)):
+        from .vision import sheet_path
+
+        path = sheet_path(st.settings, version_id.replace("/", "").replace("..", ""))
+        if not path.is_file():
+            raise HTTPException(404, "Hoja aún no generada")
+        return FileResponse(path, media_type="image/jpeg")
 
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str, st: AppState = Depends(S)):
