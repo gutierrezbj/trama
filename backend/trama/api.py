@@ -1161,6 +1161,21 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
                 "visual_total": visual_total, "summary": summary, "items": items,
                 "ties": sum(1 for w in votes.values() if w == "tie"), "none": sum(1 for w in votes.values() if w == "none")}
 
+    @app.post("/api/ai/runs/{run_id}/retry", status_code=202)
+    def ai_retry(run_id: str, st: AppState = Depends(S)):
+        """Vuelve a preguntar solo lo que falló; lo ya respondido se conserva."""
+        if st.db.one("SELECT 1 FROM ai_runs WHERE id = ?", (run_id,)) is None:
+            raise HTTPException(404, "Prueba no encontrada")
+        if st.db.one("SELECT 1 FROM ai_runs WHERE status IN ('queued','running')"):
+            raise HTTPException(409, "Ya hay una prueba en marcha")
+        with st.db.tx() as conn:
+            n = conn.execute("DELETE FROM ai_labels WHERE run_id = ? AND error IS NOT NULL", (run_id,)).rowcount
+            conn.execute("UPDATE ai_runs SET status = 'queued' WHERE id = ?", (run_id,))
+            conn.execute("INSERT INTO jobs(id, kind, status, payload, created_at) VALUES (?, 'ai_test', 'queued', ?, ?)",
+                         (new_id("job"), json.dumps({"run_id": run_id}), now_iso()))
+        st.worker.notify()
+        return {"retrying": n}
+
     @app.post("/api/ai/runs/{run_id}/vote")
     def ai_vote(run_id: str, body: AiVote, st: AppState = Depends(S)):
         with st.db.tx() as conn:

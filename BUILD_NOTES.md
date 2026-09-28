@@ -345,3 +345,4 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Página «IA de visión» (Ajustes): lanzar la prueba de 50 recursos repartidos por categorías, comparar lado a lado, votar el mejor, y ver coste y tiempo por modelo proyectados a toda la biblioteca.
 - Sonda previa (Sun Burst): gpt-6-luna 1,9 s y ~0,00007 $; gpt-5.4-mini 1,3 s y ~0,0005 $; Qwen3-VL 8B en el Mac ~14 s la primera (carga) y 0 $.
 - Pruebas: 47/47 (modelos simulados, sin red ni gasto).
+- Primera prueba real (50 recursos): gpt-5.4-mini 50/50, 1,2 s, 0,030 $; Qwen3-VL 8B (Mac) 49/50, 4,4 s, 0 $; gpt-6-luna 36/50, 2,3 s, 0,005 $. Los 14 fallos de gpt-6-luna eran respuestas vacías: razonaba y agotaba el presupuesto de tokens. Arreglo: `reasoning_effort: none` en los modelos que lo admiten y 600 tokens de margen; el JSON se lee aunque venga texto detrás (fallo de Qwen). Botón «Reintentar las que fallaron» (solo lo fallido, se conserva lo respondido).
