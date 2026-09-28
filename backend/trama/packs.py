@@ -484,7 +484,7 @@ def reconcile_identity(db: Database, entry: dict, sha: str, size: int) -> str:
                 conn.execute("UPDATE jobs SET status = 'cancelled', finished_at = ? WHERE version_id = ? AND status = 'queued'", (now, provisional_id))
                 keeper = conn.execute("SELECT id FROM assets WHERE version_id = ? ORDER BY created_at LIMIT 1", (final_id,)).fetchone()
                 for a in conn.execute("SELECT * FROM assets WHERE version_id = ?", (provisional_id,)).fetchall():
-                    edited = a["category_source"] == "human" or a["description_source"] == "human" or a["tags"] not in ("[]", "") or a["favorite"] or a["title"] != clean_title(a["original_title"])
+                    edited = a["category_source"] == "human" or a["description_source"] == "human" or a["tags"] not in ("[]", "") or a["favorite"] or a["title_source"] == "human"
                     used = conn.execute("SELECT 1 FROM selection_items WHERE asset_id = ? UNION SELECT 1 FROM collection_assets WHERE asset_id = ?", (a["id"], a["id"])).fetchone()
                     if keeper is None:
                         conn.execute("UPDATE assets SET version_id = ? WHERE id = ?", (final_id, a["id"]))

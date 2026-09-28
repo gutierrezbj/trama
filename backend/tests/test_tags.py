@@ -63,3 +63,31 @@ def test_auto_tags_are_searchable_filterable_and_separate_from_human_tags(env):
     assert ensure_auto_tags(db) == 0
     again = client.get(f"/api/assets/{alpha['id']}").json()
     assert again["tags"] == ["intro spot"] and "alpha" in again["auto_tags"]
+
+
+def test_meaningless_file_names_get_a_title_from_their_folders():
+    from trama.importer import smart_title
+
+    assert smart_title("_12.mp4", "Pack/MEGA PACK EDICIÓN/TRANSICIONES/COLOR TRANSITIONS/_12.mp4") == "Color Transitions · 12"
+    assert smart_title("F.mov", "BUNDLE/CRT FONTS/CLASSIC/UPPER CASE/F.mov") == "CRT Fonts · Classic · F"
+    assert smart_title("195.cube", "Pack/Luts Collections/195.cube") == "LUT 195"
+    assert smart_title("Smoke 04.mov", "Pack/Smoke/Smoke 04.mov") is None
+
+
+def test_folder_titles_are_applied_but_human_titles_are_kept(env):
+    client = env["client"]
+    import_all(client)
+    wait_idle(client)
+    db = client.app.state.trama.db
+    items = client.get("/api/assets", params={"limit": 50}).json()["items"]
+    a = next(x for x in items if x["original_title"] == "test_opaque.mp4")  # en «Transiciones/»
+    b = next(x for x in items if x["original_title"] == "test_alpha.mov")
+    # simula dos archivos con nombre sin palabras dentro de una carpeta con nombre
+    db.conn.execute("UPDATE assets SET original_title = '2.mp4', title = '2' WHERE id IN (?, ?)", (a["id"], b["id"]))
+    client.patch(f"/api/assets/{b['id']}", json={"title": "Mi favorito"})
+    from trama.tags import retag
+    retag(db)
+    got_a = client.get(f"/api/assets/{a['id']}").json()
+    got_b = client.get(f"/api/assets/{b['id']}").json()
+    assert got_a["title"] == "Transiciones · 2" and got_a["title_source"] == "folder"
+    assert got_b["title"] == "Mi favorito" and got_b["title_source"] == "human"

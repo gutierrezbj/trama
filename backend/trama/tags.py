@@ -11,9 +11,10 @@ import json
 import re
 
 from .db import Database, loads, normalize_text, now_iso
+from .importer import clean_title, smart_title
 
 # Súbase al cambiar el vocabulario o las reglas: el arranque recalcula todo el catálogo.
-AUTOTAG_VERSION = "2"
+AUTOTAG_VERSION = "3"
 
 # (etiqueta, alias en español, sinónimos). La etiqueta va en el inglés estándar del oficio (el de
 # DaVinci, Premiere y los packs); el alias en español solo entra en la búsqueda: «humo» encuentra
@@ -175,7 +176,7 @@ def compute_auto_tags(path: str, media_kind: str, ext: str, analysis: dict | Non
 
 
 _ROWS = (
-    "SELECT a.id, a.title, a.original_title, a.description, a.tags, a.auto_tags, a.search_text, v.media_kind, v.ext, v.analysis, "
+    "SELECT a.id, a.title, a.title_source, a.original_title, a.description, a.tags, a.auto_tags, a.search_text, v.media_kind, v.ext, v.analysis, "
     "(SELECT COALESCE(p.label || '/' || e.inner_path, l.rel_path) FROM locations l "
     " LEFT JOIN pack_entries e ON e.id = l.pack_entry_id LEFT JOIN packs p ON p.id = e.pack_id "
     " WHERE l.version_id = v.id ORDER BY (l.kind = 'pack') DESC, l.last_seen_at DESC LIMIT 1) AS path "
@@ -189,19 +190,27 @@ def search_text_for(title: str, original_title: str, description: str, tags: lis
 
 
 def retag(db: Database, where: str = "", params: tuple = ()) -> int:
-    """Recalcula etiquetas automáticas y texto de búsqueda de las fichas que cumplan `where`.
-    Solo escribe las que cambian. Devuelve cuántas cambiaron."""
+    """Recalcula etiquetas automáticas, título deducido y texto de búsqueda de las fichas que
+    cumplan `where`. Los títulos puestos a mano no se tocan. Solo escribe las que cambian.
+    Devuelve cuántas cambiaron."""
     rows = db.query(_ROWS + (f" WHERE {where}" if where else ""), params)
     changes = []
     for r in rows:
-        auto = compute_auto_tags(r["path"] or r["original_title"], r["media_kind"], r["ext"], loads(r["analysis"], {}))
-        search = search_text_for(r["title"], r["original_title"], r["description"], loads(r["tags"], []), auto, r["path"] or "")
+        path = r["path"] or r["original_title"]
+        auto = compute_auto_tags(path, r["media_kind"], r["ext"], loads(r["analysis"], {}))
+        title, source = r["title"], r["title_source"]
+        if source == "file" and title != clean_title(r["original_title"]):
+            source = "human"  # editado a mano antes de que existiera title_source
+        if source != "human":
+            smart = smart_title(r["original_title"], path)
+            title, source = (smart, "folder") if smart else (clean_title(r["original_title"]), "file")
+        search = search_text_for(title, r["original_title"], r["description"], loads(r["tags"], []), auto, r["path"] or "")
         auto_json = json.dumps(auto, ensure_ascii=False)
-        if auto_json != r["auto_tags"] or search != r["search_text"]:
-            changes.append((auto_json, search, r["id"]))
+        if auto_json != r["auto_tags"] or search != r["search_text"] or title != r["title"] or source != r["title_source"]:
+            changes.append((auto_json, search, title, source, r["id"]))
     if changes:
         with db.tx() as conn:
-            conn.executemany("UPDATE assets SET auto_tags = ?, search_text = ? WHERE id = ?", changes)
+            conn.executemany("UPDATE assets SET auto_tags = ?, search_text = ?, title = ?, title_source = ? WHERE id = ?", changes)
     return len(changes)
 
 
