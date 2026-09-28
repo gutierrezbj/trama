@@ -19,7 +19,8 @@ from .backup import BackupError, list_backups, verify_backup
 from .drive import DriveClient, DriveError, DriveNotConfigured, DriveNotConnected, build_auth_url, exchange_code, forget_token, load_token, new_pkce
 from .config import ARCHIVE_EXT, CATEGORIES, LUT_EXT, REPO_ROOT, MEDIA_EXTENSIONS, REQUIRED_APP, Settings, source_id_for
 from .db import Database, loads, new_id, normalize_text, now_iso
-from .importer import build_search_text, ensure_source, resolve_subpath
+from .importer import ensure_source, resolve_subpath
+from .tags import retag
 from .media import MediaError, resolve_tools
 from .packs import (
     DiskLimitError,
@@ -158,6 +159,7 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         "description": row["description"],
         "description_source": row["description_source"],
         "tags": loads(row["tags"], []),
+        "auto_tags": loads(row.get("auto_tags"), []),
         "favorite": bool(row["favorite"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -287,8 +289,10 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         if root.is_dir():
             ensure_source(db, root)
     from .packs import reconcile_cache
+    from .tags import ensure_auto_tags
 
     reconcile_cache(db, settings)
+    ensure_auto_tags(db)
 
     app = FastAPI(title="TRAMA", version=__version__, docs_url="/api/docs" if settings.auth_mode == "off" else None, openapi_url="/api/openapi.json" if settings.auth_mode == "off" else None)
     app.state.trama = state
@@ -937,6 +941,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         pack_id: str | None = None,
         media_kind: str | None = None,
         duplicates: bool | None = None,
+        tag: str | None = None,
         sort: str = "recent",
         limit: int = Query(60, ge=1, le=500),
         offset: int = Query(0, ge=0),
@@ -978,6 +983,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             params += kinds
         if duplicates:
             where.append("(a.duplicate_of IS NOT NULL OR (SELECT COUNT(*) FROM locations l WHERE l.version_id = v.id) > 1)")
+        for t in [x for x in (tag or "").split(",") if x]:
+            where.append("(EXISTS (SELECT 1 FROM json_each(a.auto_tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.tags) WHERE value = ?))")
+            params += [t, t]
         if favorite is not None:
             where.append("a.favorite = ?")
             params.append(1 if favorite else 0)
@@ -1016,11 +1024,24 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
 
     @app.get("/api/tags")
     def tags(st: AppState = Depends(S)):
+        """Etiquetas con su recuento. `kind`: manual (puestas a mano), medida (de los datos
+        medidos) o carpeta (deducidas de las carpetas del pack)."""
+        from .tags import MEASURED
+
         counts: dict[str, int] = {}
-        for r in st.db.query("SELECT tags FROM assets"):
-            for t in loads(r["tags"], []):
+        manual: set[str] = set()
+        for r in st.db.query("SELECT tags, auto_tags FROM assets"):
+            own = loads(r["tags"], [])
+            manual.update(own)
+            for t in set(own) | set(loads(r["auto_tags"], [])):
                 counts[t] = counts.get(t, 0) + 1
-        return [{"tag": t, "count": n} for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+        def kind(t: str) -> str:
+            if t in manual:
+                return "manual"
+            return "medida" if t in MEASURED or t.endswith((" fps", " bpm")) else "carpeta"
+
+        return [{"tag": t, "count": n, "kind": kind(t)} for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str, st: AppState = Depends(S)):
@@ -1054,13 +1075,12 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         if body.description is not None:
             description_source = "human" if description else "none"
         favorite = int(body.favorite) if body.favorite is not None else row["favorite"]
-        loc = st.db.one("SELECT rel_path FROM locations WHERE version_id = ? ORDER BY last_seen_at DESC LIMIT 1", (row["version_id"],))
-        search = build_search_text(title, row["original_title"], description, tags, loc["rel_path"] if loc else "")
         with st.db.tx() as conn:
             conn.execute(
-                "UPDATE assets SET title = ?, description = ?, description_source = ?, tags = ?, category = ?, category_source = ?, favorite = ?, search_text = ?, updated_at = ? WHERE id = ?",
-                (title, description, description_source, json.dumps(tags, ensure_ascii=False), category, category_source, favorite, search, now_iso(), asset_id),
+                "UPDATE assets SET title = ?, description = ?, description_source = ?, tags = ?, category = ?, category_source = ?, favorite = ?, updated_at = ? WHERE id = ?",
+                (title, description, description_source, json.dumps(tags, ensure_ascii=False), category, category_source, favorite, now_iso(), asset_id),
             )
+        retag(st.db, "a.id = ?", (asset_id,))  # texto de búsqueda con etiquetas propias y automáticas
         return serialize_asset(st, get_asset_row(st.db, asset_id), detail=True)
 
     @app.post("/api/assets/{asset_id}/reanalyze")

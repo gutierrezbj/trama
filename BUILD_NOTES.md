@@ -313,3 +313,13 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Migración 0007: los PDF ya analizados sin soporte vuelven a la cola de vistas previas.
 - Arreglado: en un proyecto, la descarga de un recurso que sigue dentro de su pack estaba bloqueada y marcaba «original offline» sin serlo.
 - Caso real: los 56 tutoriales de Harry Allsop traen cada uno el enlace al reel del efecto (uno, además, a YouTube).
+
+## Etiquetado nivel 1 (2026-09-28)
+- Etiquetas automáticas sin IA ni coste (`trama/tags.py`), en `assets.auto_tags` (migración 0008), aparte de las humanas:
+  - De las carpetas y el nombre: vocabulario de ~70 etiquetas en español con sinónimos en inglés, español y portugués (humo = smoke/fumaça, whoosh = swish/swoosh…); las de sonido solo en audio; música o efecto de sonido según la carpeta más cercana; BPM y bucles.
+  - De lo medido: transparente (alfa usado de verdad), 4k / full hd, vertical / horizontal / cuadrado, con sonido, 50-60 fps, lut.
+- Entran en la búsqueda: buscar «humo» encuentra «Smoke 04». Filtro `tag` (varias se combinan) y `/api/tags` con `kind` manual | carpeta | medida.
+- Se recalculan al terminar un análisis, al indexar un pack y, entero, al arrancar si cambia `AUTOTAG_VERSION` (tabla `meta`).
+- Interfaz: franja de etiquetas en Explorar (las más frecuentes y «Ver todas», con el formato medido aparte); en la ficha, las automáticas con trazo discontinuo y un toque filtra la biblioteca.
+- Medida sobre el catálogo real del servidor (solo lectura): el 83 % de las fichas recibe al menos una etiqueta de contenido; el resto es casi todo música sin subgénero en la carpeta. Pruebas: 40/40.
+- Pendiente (nivel 2): IA de visión para lo que las carpetas no dicen (colores, qué se ve), con coste visible.
