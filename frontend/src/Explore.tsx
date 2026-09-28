@@ -61,7 +61,6 @@ export function Explore(props: Props) {
   const [more, setMore] = useState(false);
   const [allTags, setAllTags] = useState<TagCount[]>([]);
   const [tagsOpen, setTagsOpen] = useState(false);
-  useEffect(() => { api.tags().then(setAllTags).catch(() => undefined); }, [refreshKey]);
   const filters = useMemo<AssetFilters>(
     () => ({
       q: debounced,
@@ -81,6 +80,8 @@ export function Explore(props: Props) {
     [debounced, state, fixed],
   );
   const filtersKey = JSON.stringify(filters) + refreshKey;
+  // Etiquetas contadas dentro de lo que se ve (la franja cambia con la vista y los filtros).
+  useEffect(() => { api.tags(filters).then(setAllTags).catch(() => undefined); }, [filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Datos: total + mapa disperso de páginas cargadas.
   const [total, setTotal] = useState<number | null>(null);
@@ -338,12 +339,14 @@ function TagStrip({ tags, selected, open, onOpen, onToggle }: {
   onOpen: (v: boolean) => void;
   onToggle: (t: string) => void;
 }) {
-  const content = tags.filter((t) => t.kind !== "medida");
+  const content = tags.filter((t) => t.kind === "carpeta" || t.kind === "manual");
   const measured = tags.filter((t) => t.kind === "medida");
+  const colors = tags.filter((t) => t.kind === "color" && !selected.includes(t.tag));
   const top = content.filter((t) => !selected.includes(t.tag)).slice(0, STRIP);
   const picked = selected.map((s) => tags.find((t) => t.tag === s) ?? { tag: s, count: 0, kind: "manual" as const });
   const chip = (t: TagCount) => (
     <button key={t.tag} type="button" className={`chip chip-tag${t.kind === "manual" ? " own" : ""}`} aria-pressed={selected.includes(t.tag)} onClick={() => onToggle(t.tag)}>
+      {t.kind === "color" && <span className={`swatch sw-${t.tag.replace(/[^a-z]+/g, "-")}`} aria-hidden="true" />}
       {t.tag}<span className="n">{t.count}</span>
     </button>
   );
@@ -357,6 +360,12 @@ function TagStrip({ tags, selected, open, onOpen, onToggle }: {
           {open ? "Menos" : `Ver todas (${tags.length})`}
         </button>
       </div>
+      {colors.length > 0 && (
+        <div className="tag-row">
+          <span className="tiny tag-label">Color y luz</span>
+          {colors.map(chip)}
+        </div>
+      )}
       {open && (
         <div className="tag-all">
           <div>

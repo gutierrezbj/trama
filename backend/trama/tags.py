@@ -14,7 +14,7 @@ from .db import Database, loads, normalize_text, now_iso
 from .importer import clean_title, smart_title
 
 # Súbase al cambiar el vocabulario o las reglas: el arranque recalcula todo el catálogo.
-AUTOTAG_VERSION = "3"
+AUTOTAG_VERSION = "4"
 
 # (etiqueta, alias en español, sinónimos). La etiqueta va en el inglés estándar del oficio (el de
 # DaVinci, Premiere y los packs); el alias en español solo entra en la búsqueda: «humo» encuentra
@@ -108,6 +108,34 @@ ALIASES: dict[str, str] = {tag: alias for tag, alias, _pattern in VOCABULARY if 
 ALIASES.update({"alpha": "transparente transparencia alfa", "with audio": "con sonido", "loop": "bucle", "music": "musica",
                 "sfx": "efecto de sonido efectos", "square": "cuadrado", "full hd": "1080"})
 
+# Color y luz medidos en la miniatura (ver media.measure_look).
+COLOR_TAGS = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "magenta", "black & white", "dark", "bright", "black background"]
+ALIASES.update({"red": "rojo", "orange": "naranja", "yellow": "amarillo", "green": "verde", "cyan": "cian turquesa",
+                "blue": "azul", "purple": "morado violeta", "magenta": "magenta rosa fucsia", "black & white": "blanco y negro",
+                "dark": "oscuro", "bright": "claro luminoso", "black background": "fondo negro"})
+
+
+def look_tags(look: dict | None, has_alpha: bool) -> list[str]:
+    """Etiquetas de color y luz. Con alfa la miniatura va sobre damero: no se juzga el fondo."""
+    if not look:
+        return []
+    tags: list[str] = []
+    if look.get("colorful", 0) >= 0.02:
+        for name, share in list(look.get("hues", {}).items())[:2]:
+            if share >= 0.25:
+                tags.append(name)
+    elif look.get("colorful", 0) < 0.005 and not has_alpha:
+        tags.append("black & white")
+    if not has_alpha:
+        if look.get("black", 0) >= 0.55:
+            tags.append("black background")
+        elif look.get("luma", 0.5) < 0.2:
+            tags.append("dark")
+        if look.get("luma", 0) > 0.7:
+            tags.append("bright")
+    return tags
+
+
 # Etiquetas que salen de la medición (no de la carpeta): la interfaz las agrupa aparte.
 MEASURED = ["alpha", "4k", "full hd", "vertical", "horizontal", "square", "with audio", "loop", "lut"]
 
@@ -172,6 +200,9 @@ def compute_auto_tags(path: str, media_kind: str, ext: str, analysis: dict | Non
         add(f"{round(fps)} fps")
     if ext in (".cube", ".3dl", ".look"):
         add("lut")
+    if media_kind in ("video", "image"):
+        for t in look_tags(a.get("look"), bool(visual.get("alpha_format"))):
+            add(t)
     return tags
 
 

@@ -294,6 +294,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
 
     reconcile_cache(db, settings)
     ensure_auto_tags(db)
+    from .worker import enqueue_look
+
+    enqueue_look(db)  # color y luz de las miniaturas ya generadas (una vez)
 
     app = FastAPI(title="TRAMA", version=__version__, docs_url="/api/docs" if settings.auth_mode == "off" else None, openapi_url="/api/openapi.json" if settings.auth_mode == "off" else None)
     app.state.trama = state
@@ -926,8 +929,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         return {"groups": out, "linked_assets": linked}
 
     # ---- recursos ----------------------------------------------------------
-    @app.get("/api/assets")
-    def list_assets(
+    def _asset_where(
         q: str = "",
         category: str | None = None,
         alpha: bool | None = None,
@@ -943,11 +945,8 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         media_kind: str | None = None,
         duplicates: bool | None = None,
         tag: str | None = None,
-        sort: str = "recent",
-        limit: int = Query(60, ge=1, le=500),
-        offset: int = Query(0, ge=0),
-        st: AppState = Depends(S),
-    ):
+    ) -> tuple[str, list]:
+        """Filtros comunes de la galería y del recuento de etiquetas."""
         where, params = [], []
         for term in normalize_text(q).split():
             where.append("a.search_text LIKE ?")
@@ -1000,6 +999,31 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             where.append("EXISTS (SELECT 1 FROM selection_items si WHERE si.asset_id = a.id AND si.selection_id = ?)")
             params.append(selection_id)
         clause = (" WHERE " + " AND ".join(where)) if where else ""
+        return clause, params
+
+    @app.get("/api/assets")
+    def list_assets(
+        q: str = "",
+        category: str | None = None,
+        alpha: bool | None = None,
+        orientation: str | None = None,
+        max_duration: float | None = None,
+        min_duration: float | None = None,
+        availability: str | None = None,
+        favorite: bool | None = None,
+        analysis: str | None = None,
+        collection_id: str | None = None,
+        selection_id: str | None = None,
+        pack_id: str | None = None,
+        media_kind: str | None = None,
+        duplicates: bool | None = None,
+        tag: str | None = None,
+        sort: str = "recent",
+        limit: int = Query(60, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        st: AppState = Depends(S),
+    ):
+        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag)
         order = {
             "recent": "a.created_at DESC, a.title",
             "title": "a.title COLLATE NOCASE",
@@ -1024,14 +1048,33 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         return {"total": total, "favorites": fav, "categories": cats, "analysis_pending": pending, "analysis_failed": failed, "archived": archived, "packs": packs}
 
     @app.get("/api/tags")
-    def tags(st: AppState = Depends(S)):
-        """Etiquetas con su recuento. `kind`: manual (puestas a mano), medida (de los datos
-        medidos) o carpeta (deducidas de las carpetas del pack)."""
-        from .tags import MEASURED
+    def tags(
+        q: str = "",
+        category: str | None = None,
+        alpha: bool | None = None,
+        orientation: str | None = None,
+        max_duration: float | None = None,
+        min_duration: float | None = None,
+        availability: str | None = None,
+        favorite: bool | None = None,
+        analysis: str | None = None,
+        collection_id: str | None = None,
+        selection_id: str | None = None,
+        pack_id: str | None = None,
+        media_kind: str | None = None,
+        duplicates: bool | None = None,
+        tag: str | None = None,
+        st: AppState = Depends(S),
+    ):
+        """Etiquetas con su recuento DENTRO de lo que se está viendo (mismos filtros que la
+        galería). `kind`: manual (puestas a mano), color (color y luz medidos en la miniatura),
+        medida (formato medido) o carpeta (deducidas de las carpetas del pack)."""
+        from .tags import COLOR_TAGS, MEASURED
 
+        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag)
         counts: dict[str, int] = {}
         manual: set[str] = set()
-        for r in st.db.query("SELECT tags, auto_tags FROM assets"):
+        for r in st.db.query(f"SELECT a.tags, a.auto_tags FROM assets a JOIN asset_versions v ON v.id = a.version_id{clause}", params):
             own = loads(r["tags"], [])
             manual.update(own)
             for t in set(own) | set(loads(r["auto_tags"], [])):
@@ -1040,6 +1083,8 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         def kind(t: str) -> str:
             if t in manual:
                 return "manual"
+            if t in COLOR_TAGS:
+                return "color"
             return "medida" if t in MEASURED or t.endswith((" fps", " bpm")) else "carpeta"
 
         return [{"tag": t, "count": n, "kind": kind(t)} for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]

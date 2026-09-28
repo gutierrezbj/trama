@@ -329,3 +329,11 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Muchos packs nombran los archivos «2.mov», «F.mov», «_12.mp4» o «195.cube»; lo que dice qué son está en la carpeta. Cuando el nombre no tiene ninguna palabra de tres letras, el título se arma con las carpetas: «Color Transitions · 12», «CRT Fonts · Classic · F», «LUT 195». Se saltan carpetas genéricas (raíces de pack, UPPER CASE, PNG, 4K, V1…); una carpeta de una sola palabra toma el contexto de la de arriba.
 - `assets.title_source` (migración 0009): file | folder | human. Lo puesto a mano nunca se recalcula. Se aplica en el mismo recalculo que las etiquetas (AUTOTAG_VERSION 3). En la ficha, el título armado lleva un aviso con el nombre real del archivo.
 - Catálogo real (solo lectura): 2.447 de 10.896 títulos mejoran. Pruebas: 42/42.
+
+## Nivel 2, paso A: color y luz sin IA (2026-09-28)
+- `media.measure_look`: sobre la miniatura (96×96) mide el reparto de tonos entre los píxeles con color, la fracción con color, la luminosidad percibida y la fracción casi negra; se guarda en `analysis.look`.
+- Etiquetas (kind `color`): red, orange, yellow, green, cyan, blue, purple, magenta (hasta dos, ≥25 % del color), black & white, dark, bright, black background (útil para modo pantalla). Con alfa no se juzga el fondo (la miniatura va sobre damero). Alias en español para buscar («naranja», «fondo negro»…).
+- Se mide al generar la miniatura y, para las ya existentes, con el trabajo `look` que se encola al arrancar. AUTOTAG_VERSION 4.
+- La franja de etiquetas cuenta dentro de lo que se ve (`/api/tags` acepta los mismos filtros que la galería): en VFX ya no salen music ni sfx. Fila «Color y luz» con muestras de color.
+- Visto de paso: algunas miniaturas con alfa salen vacías (solo damero) porque el fotograma al 35 % cae antes del efecto (p. ej. un estallido de sangre). Pendiente: elegir el fotograma con más cobertura de alfa.
+- Pruebas: 45/45.
