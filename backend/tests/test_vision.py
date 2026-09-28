@@ -20,7 +20,7 @@ def test_ai_test_compares_models_with_measured_cost_and_votes(env, monkeypatch):
     st.settings.openai_api_key = "sk-prueba"
     seen_sheets = []
 
-    def fake_describe(settings, model, sheet, hints, client=None):
+    def fake_describe(settings, model, sheet, hints, client=None, what="video3"):
         seen_sheets.append(sheet)
         if model == "local:roto":
             raise vision.VisionError("LM Studio apagado")
@@ -49,3 +49,45 @@ def test_ai_test_compares_models_with_measured_cost_and_votes(env, monkeypatch):
 def test_reply_with_trailing_text_after_the_json_is_accepted():
     desc, tags = vision._parse('{"description": "Chispas", "tags": ["sparks"]}\n{"extra": 1}')
     assert desc == "Chispas" and tags == ["sparks"]
+
+
+def test_still_images_are_not_described_as_motion():
+    text = vision.PROMPT.format(hints="x", what=vision.WHAT["still"][0], motion=vision.WHAT["still"][1])
+    assert "3 frames" not in text and "do not describe or invent any motion" in text and "how it moves" not in text
+
+
+def test_full_run_labels_the_library_keeps_human_descriptions_and_respects_the_budget(env, monkeypatch):
+    client = env["client"]
+    import_all(client)
+    wait_idle(client)
+    st = client.app.state.trama
+    st.settings.openai_api_key = "sk-prueba"
+    items = client.get("/api/assets", params={"limit": 50}).json()["items"]
+    opaque = next(a for a in items if a["original_title"] == "test_opaque.mp4")
+    alpha = next(a for a in items if a["original_title"] == "test_alpha.mov")
+    client.patch(f"/api/assets/{alpha['id']}", json={"description": "Mi nota"})
+    whats = {}
+
+    def fake_describe(settings, model, sheet, hints, client=None, what="video3"):
+        whats[sheet.stem] = what
+        return {"description": "Carta de ajuste de colores", "tags": ["test pattern", "color bars"], "input_tokens": 200,
+                "output_tokens": 50, "cost_usd": 0.00005, "seconds": 1.0}
+
+    monkeypatch.setattr(vision, "describe", fake_describe)
+    r = client.post("/api/ai/full", json={"model": "openai:gpt-6-luna", "max_usd": 1})
+    assert r.status_code == 202 and r.json()["pending"] == 2
+    wait_idle(client)
+    full = client.get("/api/ai/full/latest").json()
+    assert full["status"] == "done" and full["done"] == 2 and full["errors"] == 0
+    o = client.get(f"/api/assets/{opaque['id']}").json()
+    a = client.get(f"/api/assets/{alpha['id']}").json()
+    assert o["ai_tags"] == ["test pattern", "color bars"] and o["description"] == "Carta de ajuste de colores" and o["description_source"] == "inferred"
+    assert a["description"] == "Mi nota"  # lo escrito a mano manda
+    assert client.get("/api/assets", params={"tag": "color bars"}).json()["total"] == 2
+    assert client.get("/api/assets", params={"q": "test pattern"}).json()["total"] == 2
+    assert {t["tag"]: t["kind"] for t in client.get("/api/tags").json()}["color bars"] == "ia"
+    assert set(whats.values()) == {"video3"}  # vídeos con vista previa: hoja de 3 fotogramas
+
+    # una segunda pasada no repite nada; con tope ya superado se para sin gastar
+    assert client.post("/api/ai/full", json={"model": "openai:gpt-6-luna", "max_usd": 1}).json()["pending"] == 0
+    wait_idle(client)

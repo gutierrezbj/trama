@@ -129,7 +129,7 @@ class Worker:
     def claim(self) -> dict | None:
         with self.db.tx() as conn:
             running = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) AS n FROM jobs WHERE status = 'running' GROUP BY kind")}
-            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1, "preview_pack": 1, "look": 1, "ai_test": 1}
+            limits = {"extract": self.settings.extract_concurrency, "index_pack": 1, "import": 1, "drive_upload": 1, "backup": 1, "pack_upload": 1, "preview_pack": 1, "look": 1, "ai_test": 1, "ai_full": 1}
             blocked = [k for k, lim in limits.items() if running.get(k, 0) >= lim]
             exclude = f" AND kind NOT IN ({','.join('?' for _ in blocked)})" if blocked else ""
             row = conn.execute(
@@ -183,6 +183,8 @@ class Worker:
                 self._run_look(job)
             elif job["kind"] == "ai_test":
                 self._run_ai_test(job)
+            elif job["kind"] == "ai_full":
+                self._run_ai_full(job)
             else:
                 raise RuntimeError(f"Tipo de trabajo desconocido: {job['kind']}")
             self._finish(job_id, "done")
@@ -398,7 +400,7 @@ class Worker:
 
     def _run_ai_test(self, job: dict) -> None:
         """Pasa la muestra de la prueba por cada modelo. Reanudable: salta lo ya respondido."""
-        from .vision import VisionError, contact_sheet, describe, hints_for, sheet_path
+        from .vision import VisionError, contact_sheet, describe, hints_for, sheet_path, sheet_what
 
         job_id = job["id"]
         run_id = loads(job["payload"], {})["run_id"]
@@ -417,6 +419,7 @@ class Worker:
                 except Exception as exc:
                     sheet, sheet_error = None, str(exc)
                 hints = hints_for(self.db, version_id)
+                what = sheet_what(self.db, version_id)
                 for j, model in enumerate(models):
                     if self._cancel_requested(job_id) or self._stop.is_set():
                         raise JobCancelled()
@@ -426,7 +429,7 @@ class Worker:
                     try:
                         if sheet is None:
                             raise VisionError(sheet_error)
-                        res, error = describe(self.settings, model, sheet, hints, client), None
+                        res, error = describe(self.settings, model, sheet, hints, client, what=what), None
                     except Exception as exc:  # un fallo de un modelo no para la prueba
                         res, error = {}, str(exc)[:300]
                     with self.db.tx() as conn:
@@ -439,6 +442,69 @@ class Worker:
         with self.db.tx() as conn:
             conn.execute("UPDATE ai_runs SET status = 'done', finished_at = ? WHERE id = ?", (now_iso(), run_id))
         self._progress(job_id, 1.0, f"Prueba terminada: {len(sample)} recursos × {len(models)} modelos")
+
+    def _run_ai_full(self, job: dict) -> None:
+        """Pasa toda la biblioteca visual por el modelo elegido, 4 peticiones a la vez, con tope de
+        gasto. Reanudable: salta lo que ya tiene etiquetas de ese modelo."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        import httpx
+
+        from .vision import VisionError, apply_label, contact_sheet, describe, hints_for, pending_for_full, sheet_path, sheet_what
+
+        job_id = job["id"]
+        payload = loads(job["payload"], {})
+        run_id, model, max_usd = payload["run_id"], payload["model"], float(payload.get("max_usd", 2.0))
+        with self.db.tx() as conn:
+            conn.execute("UPDATE ai_runs SET status = 'running' WHERE id = ?", (run_id,))
+        spent = float(self.db.one("SELECT COALESCE(SUM(cost_usd), 0) AS c FROM ai_labels WHERE run_id = ?", (run_id,))["c"])
+        pending = pending_for_full(self.db, model)
+        total = len(pending)
+        errors = 0
+
+        def work(version_id: str, client) -> tuple[str, dict, str | None]:
+            try:
+                sheet = contact_sheet(self.settings, self.db, version_id, sheet_path(self.settings, version_id))
+                what, hints = sheet_what(self.db, version_id), hints_for(self.db, version_id)
+                for attempt in range(3):
+                    try:
+                        return version_id, describe(self.settings, model, sheet, hints, client, what=what), None
+                    except VisionError as exc:
+                        if attempt == 2 or not any(code in str(exc) for code in ("HTTP 429", "HTTP 5")):
+                            raise
+                        time.sleep(5 * (attempt + 1))  # límite de ritmo o caída momentánea
+            except Exception as exc:
+                return version_id, {}, str(exc)[:300]
+            return version_id, {}, "sin respuesta"
+
+        with httpx.Client(timeout=180) as client, ThreadPoolExecutor(max_workers=4) as pool:
+            for start in range(0, total, 8):
+                if self._cancel_requested(job_id) or self._stop.is_set():
+                    raise JobCancelled()
+                if spent >= max_usd:
+                    with self.db.tx() as conn:
+                        conn.execute("UPDATE ai_runs SET status = 'stopped', finished_at = ? WHERE id = ?", (now_iso(), run_id))
+                    self._progress(job_id, start / max(1, total), f"Parado al llegar al tope de {max_usd:.2f} $ ({start} de {total})")
+                    return
+                batch = pending[start:start + 8]
+                for version_id, res, error in pool.map(lambda v: work(v, client), batch):
+                    spent += res.get("cost_usd", 0)
+                    errors += bool(error)
+                    with self.db.tx() as conn:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO ai_labels(id, run_id, version_id, model, description, tags, input_tokens, output_tokens, cost_usd, seconds, error, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (new_id("ail"), run_id, version_id, model, res.get("description", ""), json.dumps(res.get("tags", []), ensure_ascii=False),
+                             res.get("input_tokens", 0), res.get("output_tokens", 0), res.get("cost_usd", 0), res.get("seconds", 0), error, now_iso()),
+                        )
+                    if not error:
+                        apply_label(self.db, version_id, model, res.get("description", ""), res.get("tags", []))
+                retag(self.db, "a.version_id IN (" + ",".join("?" for _ in batch) + ")", tuple(batch))
+                done = min(start + 8, total)
+                self._progress(job_id, done / max(1, total), f"{done} de {total} · {spent:.3f} $ gastados · {errors} errores")
+        with self.db.tx() as conn:
+            conn.execute("UPDATE ai_runs SET status = 'done', finished_at = ? WHERE id = ?", (now_iso(), run_id))
+        self._progress(job_id, 1.0, f"Biblioteca etiquetada: {total} recursos · {spent:.3f} $ · {errors} errores")
 
     def _run_look(self, job: dict) -> None:
         """Mide color y luz de todas las miniaturas que aún no lo tienen y recalcula etiquetas."""

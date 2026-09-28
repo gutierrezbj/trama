@@ -225,7 +225,7 @@ export function Inspector(props: Props) {
             onBlur={() => description !== asset.description && patch({ description }, "desc")}
           />
           <div className="hint">
-            {asset.description_source === "human" ? "Descripción editada a mano." : asset.description_source === "inferred" ? "Descripción inferida, revísala." : "Sin descripción todavía."}
+            {asset.description_source === "human" ? "Descripción editada a mano." : asset.description_source === "inferred" ? (asset.ai_model ? `Descrita por la IA (${asset.ai_model.split(":").pop()}); puedes corregirla.` : "Descripción inferida, revísala.") : "Sin descripción todavía."}
             {saving === "desc" && " Guardando…"}
           </div>
         </div>
@@ -254,6 +254,9 @@ export function Inspector(props: Props) {
         <div>
           <h3 className="section-title">Etiquetas</h3>
           <div className="tags">
+            {asset.ai_tags.filter((t) => !asset.auto_tags.includes(t)).map((t) => (
+              <button type="button" className="tag auto ai" key={`ai-${t}`} title={`Puesta por la IA (${asset.ai_model?.split(":").pop()}). Ver todo lo etiquetado «${t}»`} onClick={() => props.onFilterTag?.(t)}>✦ {t}</button>
+            ))}
             {asset.auto_tags.map((t) => (
               <button type="button" className="tag auto" key={`auto-${t}`} title={`Ver todo lo etiquetado «${t}»`} onClick={() => props.onFilterTag?.(t)}>{t}</button>
             ))}
@@ -270,7 +273,7 @@ export function Inspector(props: Props) {
               onBlur={addTag}
             />
           </div>
-          {asset.auto_tags.length > 0 && <p className="tiny" style={{ marginTop: 8 }}>Las de trazo discontinuo salen solas de las carpetas y del análisis. Toca una para ver todo lo parecido.</p>}
+          {asset.auto_tags.length > 0 && <p className="tiny" style={{ marginTop: 8 }}>Las de trazo discontinuo salen solas de las carpetas y del análisis; las de ✦, de la IA que mira la imagen. Toca una para ver todo lo parecido.</p>}
         </div>
 
         <div className="actions">

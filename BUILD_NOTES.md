@@ -346,3 +346,10 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Sonda previa (Sun Burst): gpt-6-luna 1,9 s y ~0,00007 $; gpt-5.4-mini 1,3 s y ~0,0005 $; Qwen3-VL 8B en el Mac ~14 s la primera (carga) y 0 $.
 - Pruebas: 47/47 (modelos simulados, sin red ni gasto).
 - Primera prueba real (50 recursos): gpt-5.4-mini 50/50, 1,2 s, 0,030 $; Qwen3-VL 8B (Mac) 49/50, 4,4 s, 0 $; gpt-6-luna 36/50, 2,3 s, 0,005 $. Los 14 fallos de gpt-6-luna eran respuestas vacías: razonaba y agotaba el presupuesto de tokens. Arreglo: `reasoning_effort: none` en los modelos que lo admiten y 600 tokens de margen; el JSON se lee aunque venga texto detrás (fallo de Qwen). Botón «Reintentar las que fallaron» (solo lo fallido, se conserva lo respondido).
+
+## Nivel 2, paso C: IA en toda la biblioteca (2026-09-29)
+- Arreglo: a las imágenes fijas ya no se les dice «3 fotogramas» (los modelos inventaban movimiento); `sheet_what`: video3 | video1 | still.
+- Trabajo `ai_full`: pasa toda la biblioteca visual por el modelo elegido, 4 peticiones a la vez, reintento ante 429/5xx, tope de gasto (se para solo) y reanudable (salta lo ya etiquetado por ese modelo).
+- Migración 0011: `assets.ai_tags` y `assets.ai_model`. La descripción de la IA entra solo si no hay una escrita a mano (`description_source` inferred). Las etiquetas de la IA entran en la búsqueda, el filtro y la franja (kind `ia`); en la ficha van con ✦.
+- Página «IA de visión»: panel «Toda la biblioteca» con modelo, tope y estimación medida en la prueba.
+- Elección tras la prueba: gpt-6-luna (vocabulario más preciso, inventa menos, ~0,35-0,85 $ para 6.517 recursos). Pruebas: 50/50.

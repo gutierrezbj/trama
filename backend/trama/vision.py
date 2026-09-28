@@ -39,12 +39,30 @@ NO_REASONING = {"gpt-6-luna", "gpt-5.4-mini", "gpt-5.4-nano"}
 DEFAULT_TEST_MODELS = ["local:qwen/qwen3-vl-8b", "openai:gpt-6-luna", "openai:gpt-5.4-mini"]
 
 PROMPT = """You are cataloguing a stock asset for a video editor (VFX, overlays, transitions, titles, textures).
-The image shows 3 frames of the clip side by side (start, middle, end); a grey checkerboard means transparency (alpha), not content.
+{what}; a grey checkerboard means transparency (alpha), not content.
 Hints from the pack folders (may be incomplete): {hints}
 
 Reply ONLY with JSON:
-{{"description": "<one short sentence in Spanish describing what is seen and how it moves or changes>",
+{{"description": "<one short sentence in Spanish describing what is seen{motion}>",
   "tags": ["<3 to 8 lowercase English terms an editor would search, e.g. smoke, light leak, paper burn, glitch, lens flare, sparks, countdown, lower third; no generic words like video, effect, frame, checkerboard, transparent>"]}}"""
+
+
+# Qué se le enseña al modelo. Con una imagen fija no hay movimiento que describir: decirle «3
+# fotogramas» le hacía inventarlo (visto en la primera prueba).
+WHAT = {
+    "video3": ("The image shows 3 frames of the clip side by side (start, middle, end)", " and how it moves or changes"),
+    "video1": ("The image is a single frame of a video clip", ""),
+    "still": ("The image is a still graphic (not a video): do not describe or invent any motion", ""),
+}
+
+
+def sheet_what(db: Database, version_id: str) -> str:
+    """video3 si hay vista previa de vídeo (hoja de 3 fotogramas), video1 si solo miniatura, still si es imagen."""
+    v = db.one("SELECT media_kind FROM asset_versions WHERE id = ?", (version_id,))
+    if not v or v["media_kind"] != "video":
+        return "still"
+    proxy = db.one("SELECT 1 FROM derivatives WHERE version_id = ? AND status = 'ready' AND kind IN ('proxy','proxy_checker','proxy_dark')", (version_id,))
+    return "video3" if proxy else "video1"
 
 
 class VisionError(RuntimeError):
@@ -117,14 +135,14 @@ def _parse(content: str) -> tuple[str, list[str]]:
     return str(data.get("description") or "").strip(), tags[:8]
 
 
-def describe(settings: Settings, model_spec: str, sheet: Path, hints: str, client: httpx.Client | None = None) -> dict:
+def describe(settings: Settings, model_spec: str, sheet: Path, hints: str, client: httpx.Client | None = None, what: str = "video3") -> dict:
     """Llama al modelo con la hoja de fotogramas. Devuelve descripción, etiquetas, tokens, coste y tiempo."""
     url, headers, model = _endpoint(settings, model_spec)
     image = base64.b64encode(sheet.read_bytes()).decode()
     body = {
         "model": model,
         "messages": [{"role": "user", "content": [
-            {"type": "text", "text": PROMPT.format(hints=hints or "none")},
+            {"type": "text", "text": PROMPT.format(hints=hints or "none", what=WHAT[what][0], motion=WHAT[what][1])},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}", "detail": "low"}},
         ]}],
     }
@@ -202,3 +220,35 @@ def hints_for(db: Database, version_id: str) -> str:
 
 def sheet_path(settings: Settings, version_id: str) -> Path:
     return settings.data_dir / "ia" / "hojas" / f"{version_id}.jpg"
+
+
+def create_full_run(db: Database, model: str, max_usd: float) -> str:
+    """Pasada por toda la biblioteca visual con el modelo elegido y un tope de gasto."""
+    run_id = new_id("air")
+    with db.tx() as conn:
+        conn.execute(
+            "INSERT INTO ai_runs(id, kind, models, sample, status, created_at) VALUES (?, 'full', ?, '[]', 'queued', ?)",
+            (run_id, json.dumps([model]), now_iso()),
+        )
+        conn.execute("INSERT INTO jobs(id, kind, status, payload, created_at) VALUES (?, 'ai_full', 'queued', ?, ?)",
+                     (new_id("job"), json.dumps({"run_id": run_id, "model": model, "max_usd": max_usd}), now_iso()))
+    return run_id
+
+
+def pending_for_full(db: Database, model: str) -> list[str]:
+    """Versiones visuales que aún no tienen etiquetas de este modelo."""
+    return [r["version_id"] for r in db.query(
+        f"SELECT x.version_id FROM ({VISUAL_SQL}) x WHERE NOT EXISTS "
+        "(SELECT 1 FROM assets a2 WHERE a2.version_id = x.version_id AND a2.ai_model = ?)", (model,))]
+
+
+def apply_label(db: Database, version_id: str, model: str, description: str, tags: list[str]) -> None:
+    """Guarda en la ficha las etiquetas de la IA y su descripción si no hay una escrita a mano."""
+    with db.tx() as conn:
+        conn.execute(
+            "UPDATE assets SET ai_tags = ?, ai_model = ?, "
+            "description = CASE WHEN description_source IN ('none', 'inferred') THEN ? ELSE description END, "
+            "description_source = CASE WHEN description_source IN ('none', 'inferred') AND ? <> '' THEN 'inferred' ELSE description_source END "
+            "WHERE version_id = ?",
+            (json.dumps(tags, ensure_ascii=False), model, description, description, version_id),
+        )
