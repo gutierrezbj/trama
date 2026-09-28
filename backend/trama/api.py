@@ -117,6 +117,8 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         kinds, preview_kind = [], "image"
     elif analysis.get("preview_support") == "lut_demo" or row["ext"] in LUT_EXT:
         kinds, preview_kind = ["lut_demo"], "lut_demo"
+    elif analysis.get("preview_support") == "pdf":
+        kinds, preview_kind = ["thumb"], "pdf"
     else:
         kinds, preview_kind = [], "none"
 
@@ -177,7 +179,9 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         "archived": archived and not available,
         "extractable": archived and any(l["kind"] == "pack" and l["status"] == "archived" for l in locations),
         "duplicate_of": row.get("duplicate_of"),
-        "required_app": REQUIRED_APP.get(row["ext"]) if media_kind == "other" else None,
+        "required_app": REQUIRED_APP.get(row["ext"]) if media_kind == "other" and preview_kind != "pdf" else None,
+        "video_links": analysis.get("video_links") or [],
+        "pages": analysis.get("pages"),
         "provider_preview": provider_preview,
         "lut": analysis.get("lut"),
         "locations": locations,
@@ -725,9 +729,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         """Cuántos recursos de packs tienen ya vista previa y el trabajo en curso, si lo hay."""
         pending = st.db.one(
             "SELECT COUNT(*) AS n FROM pack_entries pe JOIN asset_versions v ON v.id = pe.version_id "
-            "WHERE pe.status = 'archived' AND pe.media_kind IN ('video','audio','image') AND v.analysis_status = 'pending'"
+            "WHERE pe.status = 'archived' AND (pe.media_kind IN ('video','audio','image') OR pe.ext = '.pdf') AND v.analysis_status = 'pending'"
         )["n"]
-        total = st.db.one("SELECT COUNT(*) AS n FROM pack_entries WHERE media_kind IN ('video','audio','image') AND status != 'unsafe'")["n"]
+        total = st.db.one("SELECT COUNT(*) AS n FROM pack_entries WHERE (media_kind IN ('video','audio','image') OR ext = '.pdf') AND status NOT IN ('unsafe','ignored')")["n"]
         jobs = st.db.query("SELECT status, message, progress FROM jobs WHERE kind = 'preview_pack' AND status IN ('queued','running') ORDER BY status DESC, created_at")
         running = next((dict(j) for j in jobs if j["status"] == "running"), None)
         return {"pending": pending, "total": total, "packs_queued": len(jobs), "running": running}

@@ -307,3 +307,9 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Síntoma: la página se cortaba («upstream prematurely closed», «Response content shorter than Content-Length») y la ficha y el resumen de trabajos daban 500, mientras Docker seguía marcando «healthy».
 - Causa: el proceso tenía 1.023 de 1.024 descriptores abiertos. Cada hilo del servidor web abría su conexión SQLite (hilo-local) y `Database` guardaba una referencia fuerte en `_all`, así que las conexiones de hilos ya muertos nunca se cerraban.
 - Arreglo: `Database` recoge y cierra las conexiones de hilos muertos al abrir una nueva; `/api/health` pública que abre la base de datos y un archivo (usada por el HEALTHCHECK de Docker y por healthcheck.sh); `ulimits.nofile` 65536 en compose. Servicio restablecido reiniciando el contenedor (las vistas previas se reanudaron solas).
+
+## PDF como tutoriales (2026-09-28)
+- Los PDF de los packs tienen vista previa (primera página, `pypdfium2`) y se extraen sus enlaces a vídeo (`pypdf`): reels de Instagram, YouTube, TikTok o Vimeo; se descartan perfiles, tiendas y promociones. La ficha muestra la página, «▶ Ver el efecto» y «Abrir PDF» (sacado del ZIP en Drive, sin descargar).
+- Migración 0007: los PDF ya analizados sin soporte vuelven a la cola de vistas previas.
+- Arreglado: en un proyecto, la descarga de un recurso que sigue dentro de su pack estaba bloqueada y marcaba «original offline» sin serlo.
+- Caso real: los 56 tutoriales de Harry Allsop traen cada uno el enlace al reel del efecto (uno, además, a YouTube).

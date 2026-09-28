@@ -779,7 +779,7 @@ def pending_preview_entries(db: Database, pack_id: str | None = None) -> list[di
     where = "AND pe.pack_id = ?" if pack_id else ""
     rows = db.query(
         "SELECT pe.* FROM pack_entries pe JOIN asset_versions v ON v.id = pe.version_id "
-        "WHERE pe.status = 'archived' AND pe.media_kind IN ('video','audio','image') AND v.analysis_status = 'pending' "
+        "WHERE pe.status = 'archived' AND (pe.media_kind IN ('video','audio','image') OR pe.ext = '.pdf') AND v.analysis_status = 'pending' "
         f"{where} ORDER BY pe.pack_id, pe.inner_path",
         (pack_id,) if pack_id else (),
     )

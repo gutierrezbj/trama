@@ -373,3 +373,44 @@ def test_connections_of_dead_threads_are_closed(tmp_path):
 def test_health_is_public_and_checks_the_database(env):
     r = env["client"].get("/api/health")
     assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_pdf_tutorial_gets_first_page_preview_and_video_link(env):
+    """Un PDF dentro de un pack: vista previa de la primera página y solo el enlace al vídeo del
+    efecto (se descartan perfil y tienda)."""
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.annotations import Link
+
+    w = PdfWriter()
+    w.add_blank_page(width=300, height=400)
+    for uri in ("https://www.instagram.com/reel/ABC123", "https://www.instagram.com/harry__allsop/", "https://stan.store/x/p/coaching"):
+        w.add_annotation(0, Link(rect=(10, 10, 100, 30), target_page_index=None) if False else _uri_link(uri))
+    buf = io.BytesIO()
+    w.write(buf)
+    client, root = env["client"], env["root"]
+    (root / "packs").mkdir()
+    pdf = root / "guia.pdf"
+    pdf.write_bytes(buf.getvalue())
+    make_pack(root / "packs", {"Tutoriales/Guia Efecto.pdf": pdf}, "tut.zip")
+    pdf.unlink()
+    pack = index_and_wait(client, source_id(client), "packs/tut.zip")
+    assert client.post("/api/packs/previews").json()["queued"] == 1
+    wait_idle(client)
+    a = client.get("/api/assets", params={"pack_id": pack["id"], "limit": 5}).json()["items"][0]
+    a = client.get(f"/api/assets/{a['id']}").json()
+    assert a["preview"]["kind"] == "pdf" and a["preview"]["status"] == "ready" and a["thumb_url"]
+    assert a["video_links"] == ["https://www.instagram.com/reel/ABC123"] and a["pages"] == 1
+    assert client.get(a["thumb_url"]).status_code == 200
+
+
+def _uri_link(uri):
+    from pypdf.generic import ArrayObject, DictionaryObject, FloatObject, NameObject, TextStringObject
+
+    return DictionaryObject({
+        NameObject("/Type"): NameObject("/Annot"),
+        NameObject("/Subtype"): NameObject("/Link"),
+        NameObject("/Rect"): ArrayObject([FloatObject(10), FloatObject(10), FloatObject(100), FloatObject(30)]),
+        NameObject("/A"): DictionaryObject({NameObject("/S"): NameObject("/URI"), NameObject("/URI"): TextStringObject(uri)}),
+    })
