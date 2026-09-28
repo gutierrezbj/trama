@@ -6,6 +6,7 @@ medirse se devuelve None (la interfaz lo muestra como pendiente o desconocido), 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import threading
@@ -176,6 +177,8 @@ def probe_file(tools: Tools, path: Path, timeout: int, register=None) -> dict:
     if kind == "other":
         if path.suffix.lower() in LUT_EXT:
             return _probe_lut(path)
+        if path.suffix.lower() == ".pdf":
+            return _probe_pdf(path)
         return {"media_kind": "other", "container": path.suffix.lower().lstrip("."), "preview_support": "none"}
 
     cmd = [tools.ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)]
@@ -287,6 +290,48 @@ def _probe_image(path: Path) -> dict:
 
 # --------------------------------------------------------------------------- derivados
 
+_VIDEO_LINK = re.compile(
+    r"^https?://(www\.)?("
+    r"instagram\.com/(reel|reels|p|tv)/|youtu\.be/|youtube\.com/(watch|shorts/|embed/)|"
+    r"tiktok\.com/@[^/]+/video/|vimeo\.com/\d"
+    r")",
+    re.I,
+)
+
+
+def _probe_pdf(path: Path) -> dict:
+    """PDF: número de páginas y enlaces a vídeos (el reel o el vídeo del efecto). Los enlaces de
+    perfil, tienda o promoción se descartan."""
+    info: dict = {"media_kind": "other", "container": "pdf", "preview_support": "pdf", "pages": None, "video_links": []}
+    try:
+        import pypdfium2 as pdfium
+
+        doc = pdfium.PdfDocument(str(path))
+        info["pages"] = len(doc)
+        doc.close()
+    except Exception as exc:  # PDF dañado o cifrado: se cataloga igual, sin vista previa
+        info["preview_support"] = "none"
+        info["error"] = f"PDF no legible: {exc}"[:200]
+        return info
+    try:
+        import logging as _logging
+
+        import pypdf
+
+        _logging.getLogger("pypdf").setLevel(_logging.ERROR)
+        seen: list[str] = []
+        for page in pypdf.PdfReader(str(path)).pages:
+            for annot in page.get("/Annots") or []:
+                action = annot.get_object().get("/A")
+                uri = str(action.get("/URI")) if action and action.get("/URI") else ""
+                if uri and _VIDEO_LINK.match(uri) and uri not in seen:
+                    seen.append(uri)
+        info["video_links"] = seen[:10]
+    except Exception:
+        pass
+    return info
+
+
 def plan_derivatives(analysis: dict) -> list[str]:
     kind = analysis.get("media_kind")
     if kind == "video":
@@ -300,6 +345,8 @@ def plan_derivatives(analysis: dict) -> list[str]:
         return ["thumb"]
     if analysis.get("preview_support") == "lut_demo":
         return ["lut_demo"]
+    if analysis.get("preview_support") == "pdf":
+        return ["thumb"]
     return []
 
 
@@ -368,6 +415,20 @@ def generate_derivative(
     media_kind = analysis.get("media_kind")
     video = analysis.get("video") or {}
     duration = analysis.get("duration_s") or 0
+
+    if kind == "thumb" and analysis.get("preview_support") == "pdf":
+        import pypdfium2 as pdfium
+
+        doc = pdfium.PdfDocument(str(source))
+        try:
+            page = doc[0]
+            scale = min(2.0, settings.thumb_max_width / max(1.0, page.get_width()))
+            im = page.render(scale=scale).to_pil().convert("RGB")
+        finally:
+            doc.close()
+        im.save(tmp, format="JPEG", quality=86)
+        tmp.replace(dest)
+        return {"width": im.width, "height": im.height}
 
     if kind == "thumb" and media_kind == "image":
         with Image.open(source) as im:

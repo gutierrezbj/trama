@@ -319,7 +319,7 @@ export function Inspector(props: Props) {
           <a className="btn block" href={originalUrl(asset)} download={asset.locations[0]?.file_name} aria-disabled={!asset.available && !asset.extractable && !asset.remote_available} onClick={(e) => !asset.available && !asset.extractable && !asset.remote_available && e.preventDefault()}>
             <IconDownload />{asset.archived ? "Extraer y descargar original" : !asset.available && asset.remote_available ? "Descargar original desde Drive" : "Descargar original"}
           </a>
-          <a className="btn ghost block" href={originalUrl(asset, true)} target="_blank" rel="noreferrer" aria-disabled={!asset.available && !asset.remote_available} onClick={(e) => !asset.available && !asset.remote_available && e.preventDefault()}>
+          <a className="btn ghost block" href={originalUrl(asset, true)} target="_blank" rel="noreferrer" aria-disabled={!asset.available && !asset.extractable && !asset.remote_available} onClick={(e) => !asset.available && !asset.extractable && !asset.remote_available && e.preventDefault()}>
             <IconExternal />Ver original
           </a>
           {asset.in_drive ? (
@@ -413,6 +413,23 @@ function Player({ asset, bg }: { asset: Asset; bg: Bg }) {
     return asset.lut_demo_url
       ? <div><div className="player bg-dark"><img src={asset.lut_demo_url} alt="Antes y después del LUT sobre una imagen de referencia sintética" /></div><div className="tiny" style={{ marginTop: 6 }}>Demostración: izquierda sin LUT, derecha con LUT, sobre una imagen sintética. No es tu material.</div></div>
       : <div className="player"><div className="state">{asset.preview.status === "failed" ? "No se pudo aplicar el LUT (archivo no compatible)." : "Generando demostración del LUT…"}</div></div>;
+  }
+  if (asset.preview.kind === "pdf") {
+    const links = asset.video_links ?? [];
+    const label = (u: string) => /instagram/i.test(u) ? "Instagram" : /youtu/i.test(u) ? "YouTube" : /tiktok/i.test(u) ? "TikTok" : /vimeo/i.test(u) ? "Vimeo" : "vídeo";
+    return (
+      <div>
+        <div className="player bg-light pdf-page">
+          {asset.thumb_url ? <img src={asset.thumb_url} alt={`Primera página de ${asset.title}`} /> : <div className="state">{asset.preview.status === "failed" ? "No se pudo leer el PDF." : "Preparando la primera página…"}</div>}
+        </div>
+        <div className="row pdf-actions">
+          {links.map((u, i) => (
+            <a key={u} className="btn small primary" href={u} target="_blank" rel="noopener noreferrer">▶ Ver el efecto{links.length > 1 ? ` ${i + 1}` : ""} ({label(u)})</a>
+          ))}
+          <a className="btn small" href={originalUrl(asset, true)} target="_blank" rel="noopener">Abrir PDF{asset.pages ? ` · ${asset.pages} págs.` : ""}</a>
+        </div>
+      </div>
+    );
   }
   if (asset.preview.status === "pending") {
     return <div className="player"><div className="state">{asset.version.analysis_status === "done" ? "Generando preview…" : asset.available ? "Analizando el archivo…" : "Original no disponible: análisis pendiente."}</div></div>;

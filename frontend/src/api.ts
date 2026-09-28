@@ -1,7 +1,7 @@
 // Cliente de la API de TRAMA. Todos los archivos se resuelven por ID en el backend.
 
 export type MediaKind = "video" | "audio" | "image" | "other";
-export type PreviewKind = "video" | "video_alpha" | "audio" | "image" | "lut_demo" | "none";
+export type PreviewKind = "video" | "video_alpha" | "audio" | "image" | "lut_demo" | "pdf" | "none";
 export type PreviewStatus = "pending" | "ready" | "failed" | "unsupported" | "archived";
 export type Bg = "dark" | "light" | "checker";
 
@@ -140,6 +140,8 @@ export interface Asset {
   thumb_url: string | null;
   waveform_url: string | null;
   in_selections: string[];
+  video_links?: string[];
+  pages?: number | null;
   in_collections: string[];
   analysis?: unknown;
   jobs?: Job[];

@@ -500,7 +500,7 @@ def reconcile_identity(db: Database, entry: dict, sha: str, size: int) -> str:
         conn.execute("UPDATE locations SET status = 'available', last_seen_at = ?, version_id = ? WHERE pack_entry_id = ?", (now, final_id, entry["id"]))
         version = conn.execute("SELECT analysis_status, media_kind, ext FROM asset_versions WHERE id = ?", (final_id,)).fetchone()
         pending_job = conn.execute("SELECT id FROM jobs WHERE version_id = ? AND kind = 'analyze' AND status IN ('queued','running')", (final_id,)).fetchone()
-        needs_analysis = version["media_kind"] != "other" or version["ext"] in LUT_EXT
+        needs_analysis = version["media_kind"] != "other" or version["ext"] in LUT_EXT or version["ext"] == ".pdf"
         if version["analysis_status"] in ("pending", "failed") and pending_job is None and needs_analysis:
             conn.execute(
                 "INSERT INTO jobs(id, kind, version_id, status, payload, created_at) VALUES (?, 'analyze', ?, 'queued', '{\"reason\": \"extract\"}', ?)",

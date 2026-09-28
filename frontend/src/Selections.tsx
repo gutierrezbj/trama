@@ -86,14 +86,14 @@ export function SelectionDetail(props: DetailProps) {
               <div className="row">
                 <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</strong>
                 <span className="tiny">{CATEGORY_LABELS[a.category] ?? a.category} · {a.version.ext.replace(".", "").toUpperCase()} · {formatDuration(a.summary.duration_s)}</span>
-                {!a.available && <span className="tiny" style={{ color: "var(--danger)" }}>original offline</span>}
+                {!a.available && !a.archived && !a.remote_available && <span className="tiny" style={{ color: "var(--danger)" }}>original offline</span>}
               </div>
               <input className="note" aria-label={`Nota para ${a.title}`} placeholder="Nota para esta pieza…" defaultValue={a.item_note ?? ""} onBlur={(e) => e.target.value !== (a.item_note ?? "") && api.patchSelectionItem(props.id, a.id, e.target.value).then(() => sel.reload(true))} />
             </div>
             <div className="ops">
               <button type="button" className="icon-btn" aria-label="Subir" disabled={i === 0} onClick={() => move(i, -1)}><IconUp /></button>
               <button type="button" className="icon-btn" aria-label="Bajar" disabled={i === (s?.items.length ?? 0) - 1} onClick={() => move(i, 1)}><IconDown /></button>
-              <a className="icon-btn" aria-label={`Descargar original de ${a.title}`} href={originalUrl(a)} download={a.locations[0]?.file_name} aria-disabled={!a.available} onClick={(e) => !a.available && e.preventDefault()}><IconDownload /></a>
+              <a className="icon-btn" aria-label={`Descargar original de ${a.title}`} href={originalUrl(a)} download={a.locations[0]?.file_name} aria-disabled={!(a.available || a.extractable || a.remote_available)} onClick={(e) => !(a.available || a.extractable || a.remote_available) && e.preventDefault()}><IconDownload /></a>
               <button type="button" className="btn ghost small" onClick={async () => { await api.removeFromSelection(props.id, a.id); props.onChanged(); sel.reload(true); }}>Quitar</button>
             </div>
           </div>
