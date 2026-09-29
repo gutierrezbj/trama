@@ -360,3 +360,11 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - «Limpiar filtros» con fondo de color.
 - Incidencia: el acceso a Drive del servidor caducó (cliente OAuth en modo prueba: Google caduca el permiso a los 7 días). Solución definitiva: publicar la app (alcance `drive.file`, no sensible, sin verificación) y reconectar una vez.
 - Pruebas: 51/51.
+
+## Huella visual y «¡Epa, esto ya lo tenías!» (2026-09-29)
+- Recuento de los 56 MOGRT: 106 piezas únicas; 25 vídeos de ejemplo; de 81 útiles, 76 ya estaban sueltas en el bundle. Las 5 nuevas (texturas) se subieron como pack «Piezas de plantillas». No se construye el «desmontaje» de MOGRT: no compensa.
+- `trama/twins.py`: huella visual por miniatura (dHash 256 bits + 32×32 gris), con el damero de la transparencia tapado; parejas si coinciden tipo, proporción, duración (±3 %), distancia ≤20 bits y diferencia relativa al contenido ≤10 %. Búsqueda por franjas de 8 bits.
+- Medida en la biblioteca real (6.652 miniaturas): huella de bits sola = 28.905 parejas (letras sobre negro y PNG sobre damero, falsos); con damero tapado y diferencia relativa = ~530, las de distinto formato casi todas el mismo efecto (.mov/.mp4, dos packs).
+- Migración 0012 (`vprints`, `visual_twins`). La huella se calcula con el color y la luz (al generar la miniatura y en el trabajo `look`); las parejas se recalculan al terminar `look` y al terminar las vistas previas de un pack.
+- Nada se fusiona: la ficha muestra «Posibles versiones» (formato, resolución, duración, tamaño, pack); el filtro «Solo duplicados y candidatos» las incluye; cada pack muestra «¡Epa, esto ya lo tenías!» con idénticos en otro pack y posibles versiones.
+- Pruebas: 52/52.

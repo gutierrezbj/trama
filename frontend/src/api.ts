@@ -63,6 +63,8 @@ export interface Pack {
   entries_total: number;
   entries_media: number;
   entries_unsafe: number;
+  already_identical?: number;
+  already_similar?: number;
   bytes_total: number;
   error: string | null;
   indexed_at: string | null;
@@ -150,6 +152,8 @@ export interface Asset {
   video_links?: string[];
   pages?: number | null;
   in_collections: string[];
+  /** Posibles versiones del mismo recurso en otro archivo (huella visual); solo en la ficha. */
+  twins?: { asset_id: string; title: string; ext: string; size: number; width: number | null; height: number | null; duration_s: number | null; pack: string | null; diff: number; thumb_url: string | null }[];
   analysis?: unknown;
   jobs?: Job[];
   item_note?: string;

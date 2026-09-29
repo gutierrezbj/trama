@@ -397,6 +397,9 @@ class Worker:
             look = {"error": str(exc)[:200]}
         with self.db.tx() as conn:
             conn.execute("UPDATE asset_versions SET analysis = json_set(COALESCE(analysis, '{}'), '$.look', json(?)) WHERE id = ?", (json.dumps(look), version_id))
+        from .twins import store_print
+
+        store_print(self.db, version_id, self.settings.derivatives_dir / d["rel_path"])  # huella visual
 
     def _run_ai_test(self, job: dict) -> None:
         """Pasa la muestra de la prueba por cada modelo. Reanudable: salta lo ya respondido."""
@@ -517,7 +520,10 @@ class Worker:
             if i % 100 == 0:
                 self._progress(job_id, i / max(1, len(pending)), f"Color y luz: {i} de {len(pending)}")
         retag(self.db)
-        self._progress(job_id, 1.0, f"Color y luz medidos en {len(pending)} miniaturas")
+        from .twins import rebuild_twins
+
+        n = rebuild_twins(self.db)
+        self._progress(job_id, 1.0, f"Color, luz y huella visual de {len(pending)} miniaturas · {n} posibles versiones")
 
     def _run_index_pack(self, job: dict) -> None:
         from .packs import index_pack
@@ -638,7 +644,14 @@ class Worker:
         msg = f"{done} vistas previas generadas" + (f", {failed} fallidas" if failed else "")
         if failed and not done:
             raise RuntimeError(msg)
+        if done:
+            self._refresh_twins()  # ¿algo de este pack ya lo tenías en otro formato?
         self._progress(job_id, 1.0, msg)
+
+    def _refresh_twins(self) -> int:
+        from .twins import rebuild_twins
+
+        return rebuild_twins(self.db)
 
     def _drain_media_jobs(self, versions: set[str], should_cancel: Callable[[], bool]) -> None:
         """Ejecuta aquí (o espera a que otro hilo termine) los análisis y derivados de estas versiones,
@@ -963,7 +976,8 @@ def enqueue_import(db: Database, source_id: str, sub_path: str) -> dict:
 
 LOOK_PENDING_SQL = (
     "SELECT v.id FROM asset_versions v JOIN derivatives d ON d.version_id = v.id AND d.kind = 'thumb' AND d.status = 'ready' "
-    "WHERE v.analysis_status = 'done' AND json_extract(v.analysis, '$.look') IS NULL"
+    "WHERE v.analysis_status = 'done' AND (json_extract(v.analysis, '$.look') IS NULL "
+    "OR NOT EXISTS (SELECT 1 FROM vprints p WHERE p.version_id = v.id))"
 )
 
 

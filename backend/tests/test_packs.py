@@ -437,3 +437,31 @@ def test_psd_and_mogrt_get_a_still_preview(env, tmp_path):
     items = client.get("/api/assets", params={"pack_id": info["id"]}).json()["items"]
     m = next(a for a in items if a["version"]["ext"] == ".mogrt")
     assert m["preview"]["kind"] == "still" and m["preview"]["status"] == "ready" and m["thumb_url"]
+
+
+def test_same_video_in_another_format_is_found_as_possible_version(env, tools):
+    """El mismo clip re-exportado (.mov → .mp4 a otra resolución) no es idéntico en bytes pero la
+    huella visual lo encuentra; no se fusiona: aparece como posible versión en la ficha."""
+    import subprocess
+
+    client = env["client"]
+    root = env["root"]
+    src = root / "Versiones" / "leak_4k.mov"
+    src.parent.mkdir(exist_ok=True)
+    subprocess.run([tools.ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "mandelbrot=size=640x360:rate=25", "-t", "2",
+                    "-c:v", "mjpeg", "-q:v", "3", str(src)], check=True)
+    subprocess.run([tools.ffmpeg, "-v", "error", "-y", "-i", str(src), "-vf", "scale=320:180", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    str(root / "Versiones" / "leak_hd.mp4")], check=True)
+    import_all(client)
+    wait_idle(client)
+    from trama.twins import rebuild_twins
+
+    assert rebuild_twins(client.app.state.trama.db) >= 1
+    items = client.get("/api/assets", params={"limit": 50}).json()["items"]
+    mov = next(a for a in items if a["original_title"] == "leak_4k.mov")
+    detail = client.get(f"/api/assets/{mov['id']}").json()
+    assert [t["ext"] for t in detail["twins"]] == [".mp4"]
+    assert client.get("/api/assets", params={"duplicates": True}).json()["total"] >= 2
+    # la carta de ajuste y el vídeo con alfa no se parecen a nada
+    opaque = next(a for a in items if a["original_title"] == "test_opaque.mp4")
+    assert client.get(f"/api/assets/{opaque['id']}").json()["twins"] == []
