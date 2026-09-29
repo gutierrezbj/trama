@@ -120,6 +120,8 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         kinds, preview_kind = ["lut_demo"], "lut_demo"
     elif analysis.get("preview_support") == "pdf":
         kinds, preview_kind = ["thumb"], "pdf"
+    elif analysis.get("preview_support") in ("image", "mogrt"):
+        kinds, preview_kind = ["thumb"], "still"  # PSD fusionado o miniatura que trae el MOGRT
     else:
         kinds, preview_kind = [], "none"
 

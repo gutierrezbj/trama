@@ -353,3 +353,10 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Migración 0011: `assets.ai_tags` y `assets.ai_model`. La descripción de la IA entra solo si no hay una escrita a mano (`description_source` inferred). Las etiquetas de la IA entran en la búsqueda, el filtro y la franja (kind `ia`); en la ficha van con ✦.
 - Página «IA de visión»: panel «Toda la biblioteca» con modelo, tope y estimación medida en la prueba.
 - Elección tras la prueba: gpt-6-luna (vocabulario más preciso, inventa menos, ~0,35-0,85 $ para 6.517 recursos). Pruebas: 50/50.
+
+## Remate (2026-09-29)
+- Limpieza de las etiquetas de la IA (`clean_ai_tags`, AUTOTAG_VERSION 5): fuera lo que TRAMA ya mide mejor (orientación, alfa, blanco y negro, fondo, 4K, loop) y los colores de detalle («blue text», «white line»); los plurales se unen al vocabulario («light leak» → «light leaks»); sin duplicar las etiquetas de carpeta. En la franja, las de la IA con menos de 3 usos no se listan (siguen en la ficha y la búsqueda).
+- Vista previa para LUT (.cube/.3dl), PSD (imagen fusionada) y MOGRT (la imagen de muestra que trae dentro, también dentro del .aegraphic) de los packs: entran en «Generar vistas previas» (antes solo vídeo, audio, imagen y PDF). PSD y MOGRT también pasan por la IA de visión.
+- «Limpiar filtros» con fondo de color.
+- Incidencia: el acceso a Drive del servidor caducó (cliente OAuth en modo prueba: Google caduca el permiso a los 7 días). Solución definitiva: publicar la app (alcance `drive.file`, no sensible, sin verificación) y reconectar una vez.
+- Pruebas: 51/51.

@@ -423,6 +423,17 @@ function Player({ asset, bg }: { asset: Asset; bg: Bg }) {
       ? <div><div className="player bg-dark"><img src={asset.lut_demo_url} alt="Antes y después del LUT sobre una imagen de referencia sintética" /></div><div className="tiny" style={{ marginTop: 6 }}>Demostración: izquierda sin LUT, derecha con LUT, sobre una imagen sintética. No es tu material.</div></div>
       : <div className="player"><div className="state">{asset.preview.status === "failed" ? "No se pudo aplicar el LUT (archivo no compatible)." : "Generando demostración del LUT…"}</div></div>;
   }
+  if (asset.preview.kind === "still") {
+    const note = asset.version.ext === ".mogrt" ? "Miniatura que trae la plantilla. Se edita en Premiere Pro (Essential Graphics)." : "Imagen fusionada del PSD. Las capas se editan en Photoshop.";
+    return (
+      <div>
+        <div className="player bg-checker">
+          {asset.thumb_url ? <img src={asset.thumb_url} alt={asset.title} /> : <div className="state">{asset.preview.status === "failed" ? "No se pudo leer la vista previa." : "Preparando la vista previa…"}</div>}
+        </div>
+        <div className="tiny" style={{ marginTop: 6 }}>{note}</div>
+      </div>
+    );
+  }
   if (asset.preview.kind === "pdf") {
     const links = asset.video_links ?? [];
     const label = (u: string) => /instagram/i.test(u) ? "Instagram" : /youtu/i.test(u) ? "YouTube" : /tiktok/i.test(u) ? "TikTok" : /vimeo/i.test(u) ? "Vimeo" : "vídeo";

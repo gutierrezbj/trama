@@ -176,7 +176,8 @@ def describe(settings: Settings, model_spec: str, sheet: Path, hints: str, clien
 
 VISUAL_SQL = (
     "SELECT a.version_id, a.category FROM assets a JOIN asset_versions v ON v.id = a.version_id "
-    "WHERE a.duplicate_of IS NULL AND v.media_kind IN ('video', 'image') AND v.analysis_status = 'done' "
+    "WHERE a.duplicate_of IS NULL AND v.analysis_status = 'done' "
+    "AND (v.media_kind IN ('video', 'image') OR json_extract(v.analysis, '$.preview_support') IN ('image', 'mogrt')) "
     "AND EXISTS (SELECT 1 FROM derivatives d WHERE d.version_id = v.id AND d.kind = 'thumb' AND d.status = 'ready')"
 )
 

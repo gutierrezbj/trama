@@ -17,6 +17,7 @@ VIDEO_EXT = {".mov", ".mp4", ".m4v", ".webm", ".mkv", ".avi", ".mxf", ".mpg", ".
 AUDIO_EXT = {".wav", ".mp3", ".aif", ".aiff", ".flac", ".ogg", ".m4a", ".aac"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".gif", ".bmp"}
 LUT_EXT = {".cube", ".3dl"}
+PREVIEWABLE_OTHER = LUT_EXT | {".pdf", ".psd", ".mogrt"}
 TEMPLATE_EXT = {".mogrt", ".aep", ".prproj", ".drp", ".drfx", ".look"}
 OTHER_EXT = LUT_EXT | TEMPLATE_EXT | {".pdf", ".psd", ".exr"}
 MEDIA_EXTENSIONS = VIDEO_EXT | AUDIO_EXT | IMAGE_EXT | OTHER_EXT

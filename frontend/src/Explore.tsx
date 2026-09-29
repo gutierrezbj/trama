@@ -339,7 +339,7 @@ function TagStrip({ tags, selected, open, onOpen, onToggle }: {
   onOpen: (v: boolean) => void;
   onToggle: (t: string) => void;
 }) {
-  const content = tags.filter((t) => t.kind === "carpeta" || t.kind === "manual" || t.kind === "ia");
+  const content = tags.filter((t) => t.kind === "carpeta" || t.kind === "manual" || (t.kind === "ia" && (t.count >= 3 || selected.includes(t.tag))));
   const measured = tags.filter((t) => t.kind === "medida");
   const colors = tags.filter((t) => t.kind === "color" && !selected.includes(t.tag));
   const top = content.filter((t) => !selected.includes(t.tag)).slice(0, STRIP);

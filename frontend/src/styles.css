@@ -336,7 +336,8 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 
 .previews-banner { margin-bottom: 14px; }
 .previews-banner .row { gap: 12px; }
-.chip.chip-clear { border-style: dashed; }
+.chip.chip-clear { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+.chip.chip-clear:hover { background: var(--danger); filter: brightness(1.12); }
 
 .nav-item.nav-pinned { color: var(--text); }
 .nav-item.nav-pinned svg { color: var(--accent); }
