@@ -265,10 +265,12 @@ def mogrt_related_videos(db: Database, row: dict) -> list[dict]:
         where, params = [], []
         for w in words:
             alts = _MOGRT_SYNONYMS.get(w, [w])
-            # palabra completa: «torn» no debe casar con «contorno» ni «rip» con «description»
-            where.append("(" + " OR ".join("(' ' || a.search_text || ' ') LIKE ?" for _ in alts) + ")")
+            # en el TÍTULO y como palabra completa: la ruta arrastraba los materiales de la propia
+            # plantilla («PAPER RIP/ASSETS/Film Burns») y «torn» casaba con «contorno»
+            where.append("(" + " OR ".join("(' ' || lower(replace(replace(a.title, '_', ' '), '.', ' ')) || ' ') LIKE ?" for _ in alts) + ")")
             params += [f"% {a} %" for a in alts]
-        for r in db.query(ASSET_SELECT + " WHERE v.media_kind = 'video' AND a.duplicate_of IS NULL AND " + " AND ".join(where) + " ORDER BY a.title LIMIT 20", params):
+        for r in db.query(ASSET_SELECT + " WHERE v.media_kind = 'video' AND a.duplicate_of IS NULL AND " + " AND ".join(where) + " AND NOT EXISTS (SELECT 1 FROM pack_entries x WHERE x.version_id = v.id AND (x.inner_path LIKE '%/ASSETS/%' OR x.inner_path LIKE '%(Footage)%'))"
+            " ORDER BY a.title LIMIT 20", params):
             add(r, "mismo efecto en vídeo")
     return out
 
