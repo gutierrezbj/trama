@@ -1,5 +1,5 @@
 import { CATEGORY_LABELS, type Named, type Stats } from "./api";
-import { CATEGORY_ICONS, IconCloud, IconSparkle, IconFolder, IconHeart, IconPlus, IconSearch, IconSelection } from "./icons";
+import { CATEGORY_ICONS, IconCloud, IconPlay, IconSparkle, IconFolder, IconHeart, IconPlus, IconSearch, IconSelection } from "./icons";
 
 export type ViewName = "explore" | "collections" | "selections" | "favorites" | "import" | "copias" | "ia";
 export interface View {
@@ -15,9 +15,11 @@ interface Props {
   categories: string[];
   open: boolean;
   onNavigate: (v: View) => void;
+  presenting?: boolean;
+  onPresenting?: (v: boolean) => void;
 }
 
-export function Sidebar({ view, stats, pinned = [], categories, open, onNavigate }: Props) {
+export function Sidebar({ view, stats, pinned = [], categories, open, onNavigate, presenting = false, onPresenting }: Props) {
   const is = (name: ViewName, category?: string) => (view.name === name && (category === undefined || view.category === category) && (category !== undefined || !view.category) ? "page" : undefined);
   return (
     <nav className={`sidebar${open ? " open" : ""}`} aria-label="Navegación principal">
@@ -52,7 +54,11 @@ export function Sidebar({ view, stats, pinned = [], categories, open, onNavigate
       })}
 
       <div className="sidebar-bottom">
+        {presenting && (
+          <button type="button" className="nav-item presenting-exit" onClick={() => onPresenting?.(false)} title="Salir del modo presentación (Alt+P)">✕ Salir de presentación</button>
+        )}
         <div className="nav-section">Ajustes</div>
+        <button type="button" className="nav-item" onClick={() => onPresenting?.(true)} title="Oculta avisos técnicos para grabar o enseñar la biblioteca (Alt+P)"><IconPlay />Modo presentación</button>
         <button type="button" className="nav-item" aria-current={view.name === "import" ? "page" : undefined} onClick={() => onNavigate({ name: "import" })}><IconPlus />Fuentes y packs</button>
         <button type="button" className="nav-item" aria-current={view.name === "copias" ? "page" : undefined} onClick={() => onNavigate({ name: "copias" })}><IconCloud />Drive y copias</button>
         <button type="button" className="nav-item" aria-current={view.name === "ia" ? "page" : undefined} onClick={() => onNavigate({ name: "ia" })}><IconSparkle />IA de visión</button>
