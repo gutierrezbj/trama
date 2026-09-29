@@ -40,6 +40,8 @@ interface Props {
   refreshKey: number;
   showFilters?: boolean;
   emptyHint?: string;
+  /** Modo presentación: sin banner técnico y solo recursos ya analizados (nada roto a la vista). */
+  presenting?: boolean;
 }
 
 const PAGE = 120;
@@ -69,7 +71,7 @@ export function Explore(props: Props) {
       max_duration: state.short ? 5 : undefined,
       category: state.categories,
       availability: state.availability || undefined,
-      analysis: state.analysis || undefined,
+      analysis: state.analysis || (props.presenting ? "done" : undefined),
       pack_id: state.packId || undefined,
       media_kind: state.mediaKind || undefined,
       duplicates: state.duplicates || undefined,
@@ -202,7 +204,7 @@ export function Explore(props: Props) {
         <h1>{props.title}</h1>
         {props.subtitle && <p>{props.subtitle}</p>}
       </div>
-      {showFilters && <PreviewsBanner />}
+      {showFilters && !props.presenting && <PreviewsBanner />}
       {showFilters && (
         <div className="filters" role="group" aria-label="Filtros">
           <button type="button" className="chip" aria-pressed={!activeFilters} onClick={clear}>Todos</button>

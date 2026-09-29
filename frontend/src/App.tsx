@@ -74,6 +74,24 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
   const [busyLabel, setBusyLabel] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
+  // Modo presentación: oculta avisos técnicos (errores, «en packs», «prov.», banner de vistas
+  // previas, Ajustes) y los recursos sin analizar, para grabar o enseñar la biblioteca.
+  // Se activa en Ajustes o con Alt+P; ?presentacion=1 / =0 en la dirección también vale.
+  const [presenting, setPresenting] = useState<boolean>(() => {
+    const q = new URLSearchParams(window.location.search).get("presentacion");
+    if (q !== null) return q === "1";
+    try { return localStorage.getItem("trama.presentacion") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("trama.presentacion", presenting ? "1" : "0"); } catch { /* sin almacenamiento: solo esta visita */ }
+  }, [presenting]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === "p" || e.key === "P")) { e.preventDefault(); setPresenting((v) => !v); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const lastFocus = useRef<HTMLElement | null>(null);
 
   const setView = useCallback((v: View) => {
@@ -133,6 +151,7 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
 
   const categories = config?.categories ?? Object.keys(CATEGORY_LABELS);
   const exploreProps = {
+    presenting,
     query, categories, packs, selectedId, onOpen: openAsset, onToggleFavorite: toggleFavorite, busy, refreshKey,
   };
   const openAssetById = (id: string) => setSelectedId(id);
@@ -178,9 +197,9 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
   }
 
   return (
-    <div className={`shell${selectedId ? " with-inspector" : ""}`}>
+    <div className={`shell${selectedId ? " with-inspector" : ""}${presenting ? " presenting" : ""}`}>
       {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} />}
-      <Sidebar view={view} stats={stats} pinned={selections.filter((x) => x.pinned)} categories={categories} open={navOpen} onNavigate={setView} />
+      <Sidebar view={view} stats={stats} pinned={selections.filter((x) => x.pinned)} categories={categories} open={navOpen} onNavigate={setView} presenting={presenting} onPresenting={setPresenting} />
       <div className="main">
         <header className="topbar">
           <button type="button" className="icon-btn menu-toggle" aria-label="Abrir navegación" onClick={() => setNavOpen(true)}><IconMenu /></button>

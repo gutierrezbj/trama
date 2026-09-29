@@ -377,3 +377,7 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 ## Etiquetas en las tarjetas (2026-09-29)
 - Cada tarjeta muestra hasta 3 etiquetas de contenido bajo el título: primero las de la IA (✦, dicen qué es), luego las de carpeta y las propias. Formato y color no se repiten ahí (ya se ven en la miniatura y las insignias).
 - Un toque en una etiqueta la añade al filtro (se combinan); las elegidas se resaltan en todas las tarjetas. Altura de fila de la galería virtual ajustada (TITLE_H 74).
+
+## Modo presentación (2026-09-29)
+- Para grabar o enseñar la biblioteca: oculta avisos técnicos (errores de análisis, «en packs», «prov.», banner de vistas previas, cerrar sesión) y la sección Ajustes, y la galería muestra solo recursos ya analizados (nada roto a la vista).
+- Se activa en Ajustes → «Modo presentación», con Alt+P o con `?presentacion=1` en la dirección; se recuerda en el navegador (localStorage, con fallback). Para salir: Alt+P, o «✕ Salir de presentación», que aparece al pasar el ratón por abajo a la izquierda.
