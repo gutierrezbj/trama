@@ -215,6 +215,13 @@ export function PackDetail({ id, onBack, onExplore }: { id: string; onBack: () =
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         </h1>
         <span className="muted">{p.entries_media} recursos · {p.extracted} extraídos · {formatBytes(p.bytes_total)}</span>
+        {((p.already_identical ?? 0) > 0 || (p.already_similar ?? 0) > 0) && (
+          <div className="notice warn already">
+            <strong>¡Epa, esto ya lo tenías!</strong> De {p.entries_media} recursos, {p.already_identical ?? 0} están idénticos en otro pack
+            {(p.already_similar ?? 0) > 0 ? ` y ${p.already_similar} parecen otra versión (otro formato o resolución) de algo que ya tienes` : ""}.
+            <button type="button" className="btn small" style={{ marginLeft: 8 }} onClick={() => onExplore(p.id)}>Verlos</button>
+          </div>
+        )}
         <div className="row" style={{ marginLeft: "auto" }}>
           <button type="button" className="btn small" onClick={() => onExplore(p.id)}>Explorar recursos</button>
           <a className="btn small" href={`/api/packs/${p.id}/inventory.csv`}>Inventario CSV</a>

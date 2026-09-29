@@ -202,6 +202,22 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
     }
     if detail:
         data["analysis"] = analysis
+        from .twins import twins_of
+
+        twins = []
+        for t in twins_of(db, version_id)[:12]:
+            other = db.one(ASSET_SELECT + " WHERE a.version_id = ? AND a.duplicate_of IS NULL LIMIT 1", (t["version_id"],))
+            if other is None:
+                continue
+            o = dict(other)
+            oa = loads(o["analysis"], {})
+            ov = oa.get("video") or oa.get("image") or {}
+            pack = db.one("SELECT p.label FROM pack_entries e JOIN packs p ON p.id = e.pack_id WHERE e.version_id = ? LIMIT 1", (t["version_id"],))
+            thumb = db.one("SELECT 1 FROM derivatives WHERE version_id = ? AND kind = 'thumb' AND status = 'ready'", (t["version_id"],))
+            twins.append({"asset_id": o["id"], "title": o["title"], "ext": o["ext"], "size": o["size"], "width": ov.get("width"), "height": ov.get("height"),
+                          "duration_s": oa.get("duration_s"), "pack": pack["label"] if pack else None, "diff": t["diff"],
+                          "thumb_url": f"/api/assets/{o['id']}/thumb" if thumb else None})
+        data["twins"] = twins
         data["jobs"] = [dict(j) for j in db.query(
             "SELECT id, kind, status, attempts, progress, message, error, created_at, finished_at FROM jobs WHERE version_id = ? ORDER BY created_at DESC LIMIT 10", (version_id,)
         )]
@@ -709,6 +725,18 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             (row["id"],),
         )
         row.update({"extracted": agg["extracted"], "extracted_bytes": agg["extracted_bytes"], "failed": agg["failed"]})
+        # «EPAAA, esto ya lo tenías»: recursos del pack que ya estaban en otro pack (idénticos) o
+        # que parecen otra versión de algo de otro pack (huella visual).
+        seen = st.db.one(
+            "SELECT "
+            "COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM pack_entries o WHERE o.version_id = e.version_id AND o.pack_id <> e.pack_id) THEN e.version_id END) AS identical, "
+            "COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM visual_twins t JOIN pack_entries o ON o.version_id = CASE WHEN t.a = e.version_id THEN t.b ELSE t.a END "
+            "  WHERE (t.a = e.version_id OR t.b = e.version_id) AND o.pack_id <> e.pack_id) THEN e.version_id END) AS similar "
+            "FROM pack_entries e WHERE e.pack_id = ? AND e.version_id IS NOT NULL",
+            (row["id"],),
+        )
+        row["already_identical"] = seen["identical"]
+        row["already_similar"] = seen["similar"]
         job = st.db.one(
             "SELECT id, kind, status, progress, message FROM jobs WHERE kind IN ('index_pack','extract') AND status IN ('queued','running') AND json_extract(payload, '$.pack_id') = ? ORDER BY created_at LIMIT 1",
             (row["id"],),
@@ -1001,7 +1029,8 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             where.append("v.media_kind IN (" + ",".join("?" for _ in kinds) + ")")
             params += kinds
         if duplicates:
-            where.append("(a.duplicate_of IS NOT NULL OR (SELECT COUNT(*) FROM locations l WHERE l.version_id = v.id) > 1)")
+            where.append("(a.duplicate_of IS NOT NULL OR (SELECT COUNT(*) FROM locations l WHERE l.version_id = v.id) > 1 "
+                         "OR EXISTS (SELECT 1 FROM visual_twins t WHERE t.a = v.id OR t.b = v.id))")
         for t in [x for x in (tag or "").split(",") if x]:
             where.append("(EXISTS (SELECT 1 FROM json_each(a.auto_tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.ai_tags) WHERE value = ?))")
             params += [t, t, t]

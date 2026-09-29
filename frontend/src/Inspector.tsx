@@ -241,6 +241,30 @@ export function Inspector(props: Props) {
           <Fact label="Tamaño" value={formatBytes(asset.version.size)} status="done" />
         </dl>
 
+        {asset.twins && asset.twins.length > 0 && (
+          <div>
+            <h3 className="section-title">Posibles versiones</h3>
+            <p className="tiny" style={{ margin: "0 0 8px" }}>Se ven igual pero son otro archivo: otro formato, resolución o pack. Quédate con la que más te sirva.</p>
+            <div className="twins">
+              {asset.twins.map((t) => (
+                <button type="button" key={t.asset_id} className="twin" onClick={() => props.onOpenAsset?.(t.asset_id)} title={t.pack ?? undefined}>
+                  {t.thumb_url ? <img src={t.thumb_url} alt="" loading="lazy" /> : <span className="twin-ph" />}
+                  <span className="twin-body">
+                    <strong>{t.title}</strong>
+                    <span className="tiny">
+                      {t.ext.replace(".", "").toUpperCase()}
+                      {t.width && t.height ? ` · ${t.width}×${t.height}` : ""}
+                      {t.duration_s ? ` · ${formatDuration(t.duration_s)}` : ""}
+                      {` · ${formatBytes(t.size)}`}
+                      {t.pack ? ` · ${t.pack}` : ""}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div>
           <h3 className="section-title">Categoría</h3>
           <div className="row">
