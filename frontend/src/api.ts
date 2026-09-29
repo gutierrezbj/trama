@@ -153,6 +153,8 @@ export interface Asset {
   pages?: number | null;
   in_collections: string[];
   /** Posibles versiones del mismo recurso en otro archivo (huella visual); solo en la ficha. */
+  /** Solo MOGRT: vídeos que enseñan el efecto (tutorial de su colección y el mismo efecto en vídeo). */
+  related_videos?: { asset_id: string; title: string; why: string; ext: string; duration_s: number | null; thumb_url: string | null }[];
   twins?: { asset_id: string; title: string; ext: string; size: number; width: number | null; height: number | null; duration_s: number | null; pack: string | null; diff: number; thumb_url: string | null }[];
   analysis?: unknown;
   jobs?: Job[];

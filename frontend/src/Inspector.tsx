@@ -241,6 +241,24 @@ export function Inspector(props: Props) {
           <Fact label="Tamaño" value={formatBytes(asset.version.size)} status="done" />
         </dl>
 
+        {asset.related_videos && asset.related_videos.length > 0 && (
+          <div>
+            <h3 className="section-title">Míralo en vídeo</h3>
+            <p className="tiny" style={{ margin: "0 0 8px" }}>Un MOGRT solo se reproduce en Premiere. Estos vídeos enseñan lo mismo y los vídeos del efecto funcionan en DaVinci y CapCut.</p>
+            <div className="twins">
+              {asset.related_videos.map((t) => (
+                <button type="button" key={t.asset_id} className="twin" onClick={() => props.onOpenAsset?.(t.asset_id)}>
+                  {t.thumb_url ? <img src={t.thumb_url} alt="" loading="lazy" /> : <span className="twin-ph" />}
+                  <span className="twin-body">
+                    <strong>{t.title}</strong>
+                    <span className="tiny">{t.why === "tutorial" ? "▶ Tutorial de la colección" : t.why === "mismo efecto en vídeo" ? "Mismo efecto, en vídeo" : "Vídeo del mismo pack"} · {t.ext.replace(".", "").toUpperCase()}{t.duration_s ? ` · ${formatDuration(t.duration_s)}` : ""}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {asset.twins && asset.twins.length > 0 && (
           <div>
             <h3 className="section-title">Posibles versiones</h3>

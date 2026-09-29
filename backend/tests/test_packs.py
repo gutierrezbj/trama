@@ -465,3 +465,32 @@ def test_same_video_in_another_format_is_found_as_possible_version(env, tools):
     # la carta de ajuste y el vídeo con alfa no se parecen a nada
     opaque = next(a for a in items if a["original_title"] == "test_opaque.mp4")
     assert client.get(f"/api/assets/{opaque['id']}").json()["twins"] == []
+
+
+def test_mogrt_offers_its_tutorial_and_the_same_effect_in_video(env, tmp_path):
+    """Un MOGRT no se reproduce sin Adobe: su ficha ofrece el tutorial de la colección y el mismo
+    efecto en vídeo que haya en la biblioteca («Paper Rip» ↔ «Paper Tear»)."""
+    from PIL import Image
+
+    client = env["client"]
+    root = env["root"]
+    files = env["files"]
+    Image.new("RGB", (64, 36), (200, 150, 90)).save(tmp_path / "thumb.png")
+    mogrt = tmp_path / "Paper Rip Transition 4K 3.mogrt"
+    with zipfile.ZipFile(mogrt, "w") as zf:
+        zf.writestr("definition.json", "{}")
+        zf.write(tmp_path / "thumb.png", "thumb.png")
+    pack = make_pack(root, {
+        "BUNDLE/PAPER RIP/MOGRTS/Paper Rip Transition 4K 3.mogrt": mogrt,
+        "BUNDLE/PAPER RIP/Help/Tutorial.mp4": files["opaque"],
+        "OTRO/Paper Tear 7.mov": files["alpha"],
+    }, name="bundle.zip")
+    info = index_and_wait(client, source_id(client), pack.name)
+    client.post("/api/packs/previews")
+    wait_idle(client)
+    items = client.get("/api/assets", params={"pack_id": info["id"], "limit": 50}).json()["items"]
+    m = next(a for a in items if a["version"]["ext"] == ".mogrt")
+    related = client.get(f"/api/assets/{m['id']}").json()["related_videos"]
+    whys = {r["title"]: r["why"] for r in related}
+    assert whys.get("Tutorial") == "tutorial"
+    assert any(r["why"] == "mismo efecto en vídeo" and "Tear" in r["title"] for r in related)
