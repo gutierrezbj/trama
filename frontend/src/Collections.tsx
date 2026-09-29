@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ConfirmButton } from "./Confirm";
 import { api, type Asset, type Named } from "./api";
 import { Explore, type ExploreState, initialExplore } from "./Explore";
 import { useAsync } from "./hooks";
@@ -68,7 +69,7 @@ export function CollectionDetail(props: DetailProps) {
             onBlur={async () => { if (editing && c && editing.trim() && editing !== c.name) { await api.patchCollection(c.id, { name: editing.trim() }); props.onChanged(); } setEditing(null); }}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         </h1>
-        <button type="button" className="btn ghost small danger" onClick={async () => { if (c && window.confirm(`¿Eliminar la colección «${c.name}»? Los recursos y sus originales no se borran.`)) { await api.deleteCollection(c.id); props.onChanged(); props.onBack(); } }}>Eliminar colección</button>
+        {c && <ConfirmButton className="btn ghost small danger" label="Eliminar colección" question={`¿Eliminar «${c.name}»? Los recursos y sus originales no se borran.`} yes="Sí, eliminar" onConfirm={async () => { await api.deleteCollection(c.id); props.onChanged(); props.onBack(); }} />}
       </div>
       <Explore
         title=""

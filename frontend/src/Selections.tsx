@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ConfirmButton } from "./Confirm";
 import { api, type Asset, CATEGORY_LABELS, formatDuration, originalUrl } from "./api";
 import { useAsync } from "./hooks";
 import { IconDown, IconDownload, IconSelection, IconUp } from "./icons";
@@ -70,7 +71,7 @@ export function SelectionDetail(props: DetailProps) {
         <span className="muted">{s?.items.length ?? 0} {s?.items.length === 1 ? "recurso" : "recursos"}</span>
         <button type="button" className="btn small" style={{ marginLeft: "auto" }} onClick={async () => { try { const r = await api.driveUploadSelection(props.id); setMsg(`${r.queued} subidas a Drive en cola${r.skipped_offline ? `, ${r.skipped_offline} omitidas (original no disponible aquí)` : ""}`); } catch (e) { setMsg((e as Error).message); } }}>Copiar el proyecto a Drive</button>
         {s && <button type="button" className="btn small" aria-pressed={!!s.pinned} title="Muestra este proyecto en la barra lateral, bajo «Explorar»" onClick={async () => { await api.patchSelection(s.id, { pinned: !s.pinned }); props.onChanged(); sel.reload(true); }}>{s.pinned ? "📌 Fijado en la barra" : "Fijar en la barra"}</button>}
-        <button type="button" className="btn ghost small danger" onClick={async () => { if (s && window.confirm(`¿Eliminar el proyecto «${s.name}»? Los recursos y sus originales no se borran.`)) { await api.deleteSelection(s.id); props.onChanged(); props.onBack(); } }}>Eliminar proyecto</button>
+        {s && <ConfirmButton className="btn ghost small danger" label="Eliminar proyecto" question={`¿Eliminar «${s.name}»? Los recursos y sus originales no se borran.`} yes="Sí, eliminar" onConfirm={async () => { await api.deleteSelection(s.id); props.onChanged(); props.onBack(); }} />}
       </div>
       <textarea className="notes" aria-label="Notas del proyecto" placeholder="Notas de producción…" value={notes ?? s?.notes ?? ""} onChange={(e) => setNotes(e.target.value)}
         onBlur={async () => { if (notes !== null && s && notes !== s.notes) { await api.patchSelection(s.id, { notes }); sel.reload(true); } setNotes(null); }} />
