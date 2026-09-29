@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ConfirmButton } from "./Confirm";
 import { api, type Config, type Import, type Job, type Pack, type PackFolder, formatBytes } from "./api";
 import { useAsync, useInterval } from "./hooks";
 import { IconBox, IconFolder } from "./icons";
@@ -244,7 +245,7 @@ export function PackDetail({ id, onBack, onExplore }: { id: string; onBack: () =
             <span className="tiny">{f.media} recursos · {f.extracted} extraídos · {formatBytes(f.bytes)}{f.unsafe ? ` · ${f.unsafe} rechazadas` : ""}</span>
             <div className="ops">
               {f.extracted < f.media && <button type="button" className="btn small" disabled={!!p.active_job || (!p.zip_present && !p.drive_verified_at)} onClick={() => act(() => api.extractPack(p.id, f.path), "Extracción en cola")}>Extraer</button>}
-              {f.extracted > 0 && <button type="button" className="btn ghost small" onClick={() => { if (window.confirm("¿Liberar las copias extraídas de esta carpeta? El ZIP, las fichas y las previews se conservan.")) act(() => api.releasePack(p.id, f.path), "Liberado"); }}>Liberar</button>}
+              {f.extracted > 0 && <ConfirmButton label="Liberar" question="¿Liberar las copias extraídas? El ZIP, las fichas y las vistas previas se conservan." yes="Sí, liberar" yesClassName="btn small" onConfirm={() => act(() => api.releasePack(p.id, f.path), "Liberado")} />}
             </div>
           </div>
         ))}
