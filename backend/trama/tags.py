@@ -14,7 +14,7 @@ from .db import Database, loads, normalize_text, now_iso
 from .importer import clean_title, smart_title
 
 # Súbase al cambiar el vocabulario o las reglas: el arranque recalcula todo el catálogo.
-AUTOTAG_VERSION = "4"
+AUTOTAG_VERSION = "5"
 
 # (etiqueta, alias en español, sinónimos). La etiqueta va en el inglés estándar del oficio (el de
 # DaVinci, Premiere y los packs); el alias en español solo entra en la búsqueda: «humo» encuentra
@@ -206,6 +206,38 @@ def compute_auto_tags(path: str, media_kind: str, ext: str, analysis: dict | Non
     return tags
 
 
+# ---- limpieza de las etiquetas de la IA ----------------------------------------------------
+# La IA repite lo que TRAMA ya mide mejor (orientación, alfa, color, fondo) y a veces etiqueta el
+# color de un detalle («blue text», «white line»). Eso se quita; el resto se une a nuestro vocabulario.
+_COLOR_WORDS = {"red", "orange", "yellow", "green", "cyan", "blue", "purple", "magenta", "pink", "violet", "teal", "gold", "golden",
+                "white", "black", "grey", "gray", "brown", "beige", "silver", "colorful", "multicolor", "rainbow", "dark", "light", "bright"}
+_FILLER_WORDS = {"background", "text", "line", "lines", "color", "colors", "colour", "tone", "tones", "shade", "hue", "outline", "and", "&"}
+_AI_DROP = {"horizontal", "vertical", "square", "landscape", "portrait", "alpha", "alpha channel", "transparent", "transparency",
+            "transparent background", "black and white", "monochrome", "monochromatic", "grayscale", "greyscale", "4k", "hd", "full hd",
+            "loop", "looping", "seamless loop", "black background", "white background", "dark background", "isolated", "cutout", "png"}
+_VOCAB_TAGS = {tag for tag, _alias, _p in VOCABULARY}
+
+
+def clean_ai_tags(ai_tags: list[str], auto_tags: list[str]) -> list[str]:
+    """Quita de las etiquetas de la IA lo ya medido y los colores de detalle, y une plurales con
+    el vocabulario de TRAMA («light leak» → «light leaks»). Idempotente."""
+    out: list[str] = []
+    for tag in ai_tags:
+        t = " ".join(tag.lower().replace("_", " ").split())
+        if not t or t in _AI_DROP:
+            continue
+        words = set(t.split())
+        if words <= (_COLOR_WORDS | _FILLER_WORDS):
+            continue  # «blue», «white line», «dark background»…
+        for form in (t, t + "s", t[:-1] if t.endswith("s") else None):
+            if form and form in _VOCAB_TAGS:
+                t = form
+                break
+        if t not in out and t not in auto_tags:
+            out.append(t)
+    return out
+
+
 _ROWS = (
     "SELECT a.id, a.title, a.title_source, a.original_title, a.description, a.tags, a.auto_tags, a.ai_tags, a.search_text, v.media_kind, v.ext, v.analysis, "
     "(SELECT COALESCE(p.label || '/' || e.inner_path, l.rel_path) FROM locations l "
@@ -235,13 +267,15 @@ def retag(db: Database, where: str = "", params: tuple = ()) -> int:
         if source != "human":
             smart = smart_title(r["original_title"], path)
             title, source = (smart, "folder") if smart else (clean_title(r["original_title"]), "file")
-        search = search_text_for(title, r["original_title"], r["description"], loads(r["tags"], []), auto, r["path"] or "", loads(r["ai_tags"], []))
+        ai = clean_ai_tags(loads(r["ai_tags"], []), auto)
+        search = search_text_for(title, r["original_title"], r["description"], loads(r["tags"], []), auto, r["path"] or "", ai)
         auto_json = json.dumps(auto, ensure_ascii=False)
-        if auto_json != r["auto_tags"] or search != r["search_text"] or title != r["title"] or source != r["title_source"]:
-            changes.append((auto_json, search, title, source, r["id"]))
+        ai_json = json.dumps(ai, ensure_ascii=False)
+        if auto_json != r["auto_tags"] or ai_json != r["ai_tags"] or search != r["search_text"] or title != r["title"] or source != r["title_source"]:
+            changes.append((auto_json, ai_json, search, title, source, r["id"]))
     if changes:
         with db.tx() as conn:
-            conn.executemany("UPDATE assets SET auto_tags = ?, search_text = ?, title = ?, title_source = ? WHERE id = ?", changes)
+            conn.executemany("UPDATE assets SET auto_tags = ?, ai_tags = ?, search_text = ?, title = ?, title_source = ? WHERE id = ?", changes)
     return len(changes)
 
 

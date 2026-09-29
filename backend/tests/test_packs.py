@@ -414,3 +414,26 @@ def _uri_link(uri):
         NameObject("/Rect"): ArrayObject([FloatObject(10), FloatObject(10), FloatObject(100), FloatObject(30)]),
         NameObject("/A"): DictionaryObject({NameObject("/S"): NameObject("/URI"), NameObject("/URI"): TextStringObject(uri)}),
     })
+
+
+def test_psd_and_mogrt_get_a_still_preview(env, tmp_path):
+    """PSD (imagen fusionada) y MOGRT (la miniatura que trae dentro) tienen vista previa."""
+    from PIL import Image
+
+    client = env["client"]
+    root = env["root"]
+    Image.new("RGB", (64, 40), (200, 30, 30)).save(tmp_path / "thumb.png")
+    mogrt = root / "Plantillas" / "titulo.mogrt"
+    mogrt.parent.mkdir(exist_ok=True)
+    with zipfile.ZipFile(mogrt, "w") as zf:
+        zf.writestr("definition.json", "{}")
+        zf.write(tmp_path / "thumb.png", "thumb.png")
+    pack = make_pack(root, {"Plantillas/titulo.mogrt": mogrt}, name="plantillas.zip")
+    mogrt.unlink()
+    sid = source_id(client)
+    info = index_and_wait(client, sid, pack.name)
+    client.post("/api/packs/previews")
+    wait_idle(client)
+    items = client.get("/api/assets", params={"pack_id": info["id"]}).json()["items"]
+    m = next(a for a in items if a["version"]["ext"] == ".mogrt")
+    assert m["preview"]["kind"] == "still" and m["preview"]["status"] == "ready" and m["thumb_url"]

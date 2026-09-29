@@ -179,6 +179,12 @@ def probe_file(tools: Tools, path: Path, timeout: int, register=None) -> dict:
             return _probe_lut(path)
         if path.suffix.lower() == ".pdf":
             return _probe_pdf(path)
+        if path.suffix.lower() == ".psd":
+            info = _probe_image(path)  # Pillow lee la imagen fusionada del PSD
+            info.update({"media_kind": "other", "container": "psd", "preview_support": "image"})
+            return info
+        if path.suffix.lower() == ".mogrt":
+            return _probe_mogrt(path)
         return {"media_kind": "other", "container": path.suffix.lower().lstrip("."), "preview_support": "none"}
 
     cmd = [tools.ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)]
@@ -266,6 +272,56 @@ def _probe_lut(path: Path) -> dict:
     except OSError as exc:
         raise MediaError(f"No se pudo leer el LUT: {exc}") from exc
     return info
+
+
+_IMAGE_MEMBER = re.compile(r"\.(png|jpe?g)$", re.I)
+
+
+def _mogrt_preview_member(zf) -> str | None:
+    """Imagen de muestra dentro de un .mogrt (ZIP): la que se llame thumb/preview o, si no, la mayor."""
+    images = [i for i in zf.infolist() if _IMAGE_MEMBER.search(i.filename) and not i.filename.startswith("__MACOSX")]
+    if not images:
+        return None
+    named = [i for i in images if re.search(r"thumb|preview|poster", i.filename, re.I)]
+    return max(named or images, key=lambda i: i.file_size).filename
+
+
+def _probe_mogrt(path: Path) -> dict:
+    """MOGRT (plantilla de Premiere): es un ZIP; si trae imagen de muestra, esa es su vista previa."""
+    import zipfile
+
+    info: dict = {"media_kind": "other", "container": "mogrt", "preview_support": "none"}
+    try:
+        with zipfile.ZipFile(path) as zf:
+            member = _mogrt_preview_member(zf)
+            if member is None:
+                # la imagen puede ir dentro del proyecto empaquetado (.aegraphic, otro ZIP)
+                for inner in zf.namelist():
+                    if inner.lower().endswith(".aegraphic"):
+                        import io
+
+                        with zipfile.ZipFile(io.BytesIO(zf.read(inner))) as nested:
+                            if _mogrt_preview_member(nested):
+                                info.update({"preview_support": "mogrt", "mogrt_member": f"{inner}!/{_mogrt_preview_member(nested)}"})
+                                return info
+            else:
+                info.update({"preview_support": "mogrt", "mogrt_member": member})
+            info["members"] = len(zf.namelist())
+    except zipfile.BadZipFile as exc:
+        info["error"] = f"MOGRT no legible: {exc}"[:200]
+    return info
+
+
+def _mogrt_image_bytes(path: Path, member: str) -> bytes:
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(path) as zf:
+        if "!/" in member:
+            outer, inner = member.split("!/", 1)
+            with zipfile.ZipFile(io.BytesIO(zf.read(outer))) as nested:
+                return nested.read(inner)
+        return zf.read(member)
 
 
 def _probe_image(path: Path) -> dict:
@@ -376,7 +432,7 @@ def plan_derivatives(analysis: dict) -> list[str]:
         return ["thumb"]
     if analysis.get("preview_support") == "lut_demo":
         return ["lut_demo"]
-    if analysis.get("preview_support") == "pdf":
+    if analysis.get("preview_support") in ("pdf", "image", "mogrt"):
         return ["thumb"]
     return []
 
@@ -461,7 +517,19 @@ def generate_derivative(
         tmp.replace(dest)
         return {"width": im.width, "height": im.height}
 
-    if kind == "thumb" and media_kind == "image":
+    if kind == "thumb" and analysis.get("preview_support") == "mogrt":
+        import io
+
+        with Image.open(io.BytesIO(_mogrt_image_bytes(source, analysis["mogrt_member"]))) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((settings.thumb_max_width, settings.thumb_max_width * 4))
+            bg = Image.open(checker_image(settings, im.width, im.height)).convert("RGBA")
+            bg.alpha_composite(im)
+            bg.convert("RGB").save(tmp, format="JPEG", quality=86)
+        tmp.replace(dest)
+        return {"width": bg.width, "height": bg.height}
+
+    if kind == "thumb" and (media_kind == "image" or analysis.get("preview_support") == "image"):
         with Image.open(source) as im:
             im = ImageOps.exif_transpose(im) or im
             im = im.convert("RGBA")
