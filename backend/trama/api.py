@@ -218,10 +218,57 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
                           "duration_s": oa.get("duration_s"), "pack": pack["label"] if pack else None, "diff": t["diff"],
                           "thumb_url": f"/api/assets/{o['id']}/thumb" if thumb else None})
         data["twins"] = twins
+        if row["ext"] == ".mogrt":
+            data["related_videos"] = mogrt_related_videos(db, row)
         data["jobs"] = [dict(j) for j in db.query(
             "SELECT id, kind, status, attempts, progress, message, error, created_at, finished_at FROM jobs WHERE version_id = ? ORDER BY created_at DESC LIMIT 10", (version_id,)
         )]
     return data
+
+
+# Palabras que no identifican el efecto en el nombre de un MOGRT.
+_MOGRT_STOP = {"4k", "hd", "transition", "transitions", "template", "templates", "mogrt", "titles", "title", "cinematic", "effects", "pack"}
+# El mismo efecto puede venir con otro nombre en otro pack («Paper Rip» / «Paper Tear»).
+_MOGRT_SYNONYMS = {"rip": ["rip", "tear", "torn"], "tear": ["rip", "tear", "torn"], "burn": ["burn"], "glitch": ["glitch"]}
+
+
+def mogrt_related_videos(db: Database, row: dict) -> list[dict]:
+    """Un MOGRT no se puede reproducir sin Adobe: se ofrecen vídeos que enseñan lo mismo. Primero el
+    tutorial de su colección (vídeo en la misma carpeta de producto) y después vídeos del mismo
+    efecto en el resto de la biblioteca, buscados por las palabras de su nombre."""
+    loc = db.one("SELECT e.pack_id, e.inner_path FROM pack_entries e WHERE e.version_id = ? LIMIT 1", (row["version_id"],))
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def add(r, why: str) -> None:
+        if r["id"] in seen or r["id"] == row["id"]:
+            return
+        seen.add(r["id"])
+        thumb = db.one("SELECT 1 FROM derivatives WHERE version_id = ? AND kind = 'thumb' AND status = 'ready'", (r["version_id"],))
+        out.append({"asset_id": r["id"], "title": r["title"], "why": why, "ext": r["ext"],
+                    "duration_s": loads(r["analysis"], {}).get("duration_s"),
+                    "thumb_url": f"/api/assets/{r['id']}/thumb" if thumb else None})
+
+    if loc:
+        # carpeta de producto: la que contiene la carpeta de los MOGRT
+        parts = loc["inner_path"].split("/")
+        product = "/".join(parts[:-2]) + "/" if len(parts) > 2 else ""
+        for r in db.query(
+            ASSET_SELECT + " JOIN pack_entries e ON e.version_id = v.id WHERE e.pack_id = ? AND e.inner_path LIKE ? AND v.media_kind = 'video' "
+            "AND e.inner_path NOT LIKE '%(Footage)%' AND e.inner_path NOT LIKE '%/ASSETS/%' AND a.duplicate_of IS NULL LIMIT 3",
+            (loc["pack_id"], product + "%"),
+        ):
+            add(r, "tutorial" if "tutorial" in normalize_text(r["title"]) else "del mismo pack")
+    words = [w for w in normalize_text(row["title"]).split() if not w.isdigit() and w not in _MOGRT_STOP and len(w) > 2]
+    if len(words) >= 2:  # con una sola palabra («Artistic») saldría cualquier cosa
+        where, params = [], []
+        for w in words:
+            alts = _MOGRT_SYNONYMS.get(w, [w])
+            where.append("(" + " OR ".join("a.search_text LIKE ?" for _ in alts) + ")")
+            params += [f"%{a}%" for a in alts]
+        for r in db.query(ASSET_SELECT + " WHERE v.media_kind = 'video' AND a.duplicate_of IS NULL AND " + " AND ".join(where) + " ORDER BY a.title LIMIT 20", params):
+            add(r, "mismo efecto en vídeo")
+    return out
 
 
 ASSET_SELECT = (

@@ -368,3 +368,8 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Migración 0012 (`vprints`, `visual_twins`). La huella se calcula con el color y la luz (al generar la miniatura y en el trabajo `look`); las parejas se recalculan al terminar `look` y al terminar las vistas previas de un pack.
 - Nada se fusiona: la ficha muestra «Posibles versiones» (formato, resolución, duración, tamaño, pack); el filtro «Solo duplicados y candidatos» las incluye; cada pack muestra «¡Epa, esto ya lo tenías!» con idénticos en otro pack y posibles versiones.
 - Pruebas: 52/52.
+
+## MOGRT: «Míralo en vídeo» (2026-09-29)
+- Comprobado: un MOGRT no trae la animación renderizada (solo portada, proyecto de After Effects y materiales; la carpeta *Thumbnails* son las miniaturas de los huecos de vídeo, no fotogramas de la animación) y el bundle no trae vídeos de muestra; solo un Tutorial.mp4 por colección de títulos. No hay forma de reproducirlo sin Adobe.
+- La ficha de un MOGRT ofrece «Míralo en vídeo»: el tutorial de su colección (vídeo en la misma carpeta de producto, fuera de los materiales) y el mismo efecto en vídeo en el resto de la biblioteca, buscado por las palabras de su nombre con sinónimos («Paper Rip» ↔ «Paper Tear»); con una sola palabra significativa no se busca (saldría cualquier cosa).
+- Pruebas: 53/53.
