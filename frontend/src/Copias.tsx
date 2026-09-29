@@ -16,6 +16,15 @@ export function CopiasView({ config, busy, notice }: Props) {
   const [label, setLabel] = useState("");
   const [msg, setMsg] = useState<string | null>(notice ?? null);
   const [verify, setVerify] = useState<Record<string, string>>({});
+  const [confirmOff, setConfirmOff] = useState(false);
+  const connect = async () => {
+    try {
+      const { url } = await api.driveAuthStart();
+      window.location.href = url;
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
   const active = busy || !!backups.data?.last_job && ["queued", "running"].includes(backups.data.last_job.status);
   useInterval(() => { backups.reload(true); jobs.reload(true); }, 2500, active);
   useEffect(() => { if (notice) setMsg(notice); }, [notice]);
@@ -55,18 +64,27 @@ export function CopiasView({ config, busy, notice }: Props) {
             <div className="notice">
               <strong>Configurado, sin conectar.</strong> Autoriza el acceso con tu cuenta de Google; TRAMA solo podrá ver los archivos que ella misma cree en la carpeta «{d.folder_name}».
               <div style={{ marginTop: 8 }}>
-                <button type="button" className="btn primary" onClick={async () => { try { const { url } = await api.driveAuthStart(); window.location.href = url; } catch (e) { setMsg((e as Error).message); } }}>Conectar con Google Drive</button>
+                <button type="button" className="btn primary" onClick={connect}>Conectar con Google Drive</button>
               </div>
               {d.error && <div className="err" style={{ marginTop: 6 }}>{d.error}</div>}
             </div>
           )}
           {d && d.connected && (
-            <div className="notice ok">
-              <strong>Conectado</strong>{d.account ? ` como ${d.account}` : ""} · carpeta «{d.folder_name}» · {d.packs ?? 0} packs y {d.files ?? 0} originales en tu Drive
+            <div className={`notice ${d.error ? "warn" : "ok"}`}>
+              <strong>{d.error ? "Conexión caducada" : "Conectado"}</strong>{d.account ? ` como ${d.account}` : ""} · carpeta «{d.folder_name}» · {d.packs ?? 0} packs y {d.files ?? 0} originales en tu Drive
               {d.quota && <div className="tiny">Uso de Drive: {formatBytes(d.quota.usage)}{d.quota.limit ? ` de ${formatBytes(d.quota.limit)}` : ""}</div>}
               {d.error && <div className="err" style={{ marginTop: 6 }}>{d.error}</div>}
               <div style={{ marginTop: 8 }} className="row">
-                <button type="button" className="btn ghost small" onClick={() => { if (window.confirm("¿Desconectar Drive? Los archivos ya subidos siguen en tu Drive; TRAMA olvidará el token de acceso.")) act(() => api.driveDisconnect(), "Drive desconectado"); }}>Desconectar</button>
+                {d.error && <button type="button" className="btn primary small" onClick={connect}>Reconectar con Google Drive</button>}
+                {/* Confirmación en la propia página: el navegador integrado bloquea window.confirm. */}
+                {!confirmOff && <button type="button" className="btn ghost small" onClick={() => setConfirmOff(true)}>Desconectar</button>}
+                {confirmOff && (
+                  <>
+                    <span className="tiny">Los archivos siguen en tu Drive; TRAMA olvida el permiso.</span>
+                    <button type="button" className="btn small danger" onClick={() => { setConfirmOff(false); act(() => api.driveDisconnect(), "Drive desconectado"); }}>Sí, desconectar</button>
+                    <button type="button" className="btn ghost small" onClick={() => setConfirmOff(false)}>Cancelar</button>
+                  </>
+                )}
               </div>
             </div>
           )}
