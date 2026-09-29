@@ -10,9 +10,28 @@ interface Props {
   onHover: (id: string | null) => void;
   onOpen: (asset: Asset, el: HTMLElement) => void;
   onToggleFavorite: (asset: Asset) => void;
+  /** Toque en una etiqueta de la tarjeta: filtra la galería por ella. */
+  onTag?: (tag: string) => void;
+  /** Etiquetas ya elegidas en el filtro: se resaltan y no ocupan sitio repetidas. */
+  activeTags?: string[];
 }
 
-function AssetCardInner({ asset, selected, hovering, reducedMotion, onHover, onOpen, onToggleFavorite }: Props) {
+// Formato y color ya se ven en la propia tarjeta (miniatura, insignias): en la tarjeta solo
+// etiquetas de contenido, primero las de la IA (dicen qué es) y luego las de carpeta.
+const NOT_CONTENT = new Set(["alpha", "4k", "full hd", "vertical", "horizontal", "square", "with audio", "loop", "lut",
+  "red", "orange", "yellow", "green", "cyan", "blue", "purple", "magenta", "black & white", "dark", "bright", "black background"]);
+
+export function cardTags(asset: Asset, max = 3): string[] {
+  const out: string[] = [];
+  for (const t of [...(asset.ai_tags ?? []), ...(asset.auto_tags ?? []), ...(asset.tags ?? [])]) {
+    if (out.length >= max) break;
+    if (NOT_CONTENT.has(t) || / (fps|bpm)$/.test(t) || out.includes(t)) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+function AssetCardInner({ asset, selected, hovering, reducedMotion, onHover, onOpen, onToggleFavorite, onTag, activeTags = [] }: Props) {
   const ref = useRef<HTMLButtonElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -141,6 +160,20 @@ function AssetCardInner({ asset, selected, hovering, reducedMotion, onHover, onO
         <span title={asset.original_title}>{asset.title}</span>
         {isAlpha && <small title="Transparencia medida">α</small>}
         {asset.version.identity_kind === "provisional" && <small title="Identidad provisional: sin extraer ni verificar por hash">prov.</small>}
+      </div>
+      <div className="card-tags">
+        {cardTags(asset).map((t) => (
+          <button
+            type="button"
+            key={t}
+            className={`card-tag${asset.ai_tags?.includes(t) ? " ai" : ""}`}
+            aria-pressed={activeTags.includes(t)}
+            title={`Ver todo lo etiquetado «${t}»`}
+            onClick={(e) => { e.stopPropagation(); onTag?.(t); }}
+          >
+            {asset.ai_tags?.includes(t) ? "✦ " : ""}{t}
+          </button>
+        ))}
       </div>
     </div>
   );

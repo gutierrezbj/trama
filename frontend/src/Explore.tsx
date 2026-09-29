@@ -46,7 +46,7 @@ const PAGE = 120;
 const GAP_X = 18;
 const GAP_Y = 22;
 const MIN_CARD = 280;
-const TITLE_H = 46;
+const TITLE_H = 74; // título + fila de etiquetas
 const OVERSCAN_ROWS = 2;
 
 /**
@@ -313,6 +313,8 @@ export function Explore(props: Props) {
                 reducedMotion={reduced}
                 onHover={setHover}
                 onOpen={onOpen}
+                activeTags={state.tags}
+                onTag={(t) => set({ tags: state.tags.includes(t) ? state.tags : [...state.tags, t] })}
                 onToggleFavorite={(a) => {
                   onToggleFavorite(a).then(() => loadPage(Math.floor(idx / PAGE), true));
                 }}
