@@ -241,9 +241,10 @@ def mogrt_related_videos(db: Database, row: dict) -> list[dict]:
     seen: set[str] = set()
 
     def add(r, why: str) -> None:
-        if r["id"] in seen or r["id"] == row["id"]:
+        # el mismo clip en .mov y .mp4 se enseña una vez
+        if r["id"] in seen or r["id"] == row["id"] or r["title"] in seen:
             return
-        seen.add(r["id"])
+        seen.update((r["id"], r["title"]))
         thumb = db.one("SELECT 1 FROM derivatives WHERE version_id = ? AND kind = 'thumb' AND status = 'ready'", (r["version_id"],))
         out.append({"asset_id": r["id"], "title": r["title"], "why": why, "ext": r["ext"],
                     "duration_s": loads(r["analysis"], {}).get("duration_s"),
@@ -264,8 +265,9 @@ def mogrt_related_videos(db: Database, row: dict) -> list[dict]:
         where, params = [], []
         for w in words:
             alts = _MOGRT_SYNONYMS.get(w, [w])
-            where.append("(" + " OR ".join("a.search_text LIKE ?" for _ in alts) + ")")
-            params += [f"%{a}%" for a in alts]
+            # palabra completa: «torn» no debe casar con «contorno» ni «rip» con «description»
+            where.append("(" + " OR ".join("(' ' || a.search_text || ' ') LIKE ?" for _ in alts) + ")")
+            params += [f"% {a} %" for a in alts]
         for r in db.query(ASSET_SELECT + " WHERE v.media_kind = 'video' AND a.duplicate_of IS NULL AND " + " AND ".join(where) + " ORDER BY a.title LIMIT 20", params):
             add(r, "mismo efecto en vídeo")
     return out
