@@ -373,3 +373,7 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Comprobado: un MOGRT no trae la animación renderizada (solo portada, proyecto de After Effects y materiales; la carpeta *Thumbnails* son las miniaturas de los huecos de vídeo, no fotogramas de la animación) y el bundle no trae vídeos de muestra; solo un Tutorial.mp4 por colección de títulos. No hay forma de reproducirlo sin Adobe.
 - La ficha de un MOGRT ofrece «Míralo en vídeo»: el tutorial de su colección (vídeo en la misma carpeta de producto, fuera de los materiales) y el mismo efecto en vídeo en el resto de la biblioteca, buscado por las palabras de su nombre con sinónimos («Paper Rip» ↔ «Paper Tear»); con una sola palabra significativa no se busca (saldría cualquier cosa).
 - Pruebas: 53/53.
+
+## Etiquetas en las tarjetas (2026-09-29)
+- Cada tarjeta muestra hasta 3 etiquetas de contenido bajo el título: primero las de la IA (✦, dicen qué es), luego las de carpeta y las propias. Formato y color no se repiten ahí (ya se ven en la miniatura y las insignias).
+- Un toque en una etiqueta la añade al filtro (se combinan); las elegidas se resaltan en todas las tarjetas. Altura de fila de la galería virtual ajustada (TITLE_H 74).

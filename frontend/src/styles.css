@@ -382,3 +382,10 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 .twin-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .twin-body strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notice.already { flex-basis: 100%; }
+
+.card-tags { display: flex; gap: 6px; padding: 6px 4px 0; overflow: hidden; white-space: nowrap; mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.card-tag { flex: none; padding: 2px 9px; border-radius: 999px; border: 1px dashed var(--line-strong); background: transparent; color: var(--text-2); font-size: 12px; line-height: 18px; }
+.card-tag.ai { border-style: solid; border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text); }
+.card-tag:hover { color: var(--text); background: var(--surface); }
+.card-tag[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+@media (prefers-reduced-motion: no-preference) { .card-tag { transition: background-color .15s ease, color .15s ease; } }
