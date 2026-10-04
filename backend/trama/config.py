@@ -22,6 +22,9 @@ TEMPLATE_EXT = {".mogrt", ".aep", ".prproj", ".drp", ".drfx", ".setting", ".pres
 OTHER_EXT = LUT_EXT | TEMPLATE_EXT | {".pdf", ".psd", ".exr"}
 MEDIA_EXTENSIONS = VIDEO_EXT | AUDIO_EXT | IMAGE_EXT | OTHER_EXT
 ARCHIVE_EXT = {".zip"}
+# Formatos que solo abren programas de Adobe: el interruptor «Solo lo que uso» los esconde para
+# quien edita en DaVinci o CapCut.
+ADOBE_ONLY_EXT = {".mogrt", ".aep", ".prproj", ".look"}
 
 # Aplicación necesaria para abrir formatos sin preview genérica (dato declarado, no medido).
 REQUIRED_APP = {

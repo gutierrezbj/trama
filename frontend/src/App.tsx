@@ -82,6 +82,13 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
     if (q !== null) return q === "1";
     try { return localStorage.getItem("trama.presentacion") === "1"; } catch { return false; }
   });
+  // «Solo lo que uso»: encendido salvo que se apague; esconde lo que solo abre Adobe.
+  const [onlyUsable, setOnlyUsable] = useState<boolean>(() => {
+    try { return localStorage.getItem("trama.soloUso") !== "0"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("trama.soloUso", onlyUsable ? "1" : "0"); } catch { /* sin almacenamiento */ }
+  }, [onlyUsable]);
   useEffect(() => {
     try { localStorage.setItem("trama.presentacion", presenting ? "1" : "0"); } catch { /* sin almacenamiento: solo esta visita */ }
   }, [presenting]);
@@ -152,6 +159,8 @@ function Shell({ auth, driveNotice, onLogout }: { auth: AuthStatus | null; drive
   const categories = config?.categories ?? Object.keys(CATEGORY_LABELS);
   const exploreProps = {
     presenting,
+    onlyUsable,
+    onOnlyUsable: setOnlyUsable,
     query, categories, packs, selectedId, onOpen: openAsset, onToggleFavorite: toggleFavorite, busy, refreshKey,
   };
   const openAssetById = (id: string) => setSelectedId(id);

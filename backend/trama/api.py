@@ -1043,6 +1043,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         media_kind: str | None = None,
         duplicates: bool | None = None,
         tag: str | None = None,
+        usable: bool | None = None,
     ) -> tuple[str, list]:
         """Filtros comunes de la galería y del recuento de etiquetas."""
         where, params = [], []
@@ -1082,6 +1083,11 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         if duplicates:
             where.append("(a.duplicate_of IS NOT NULL OR (SELECT COUNT(*) FROM locations l WHERE l.version_id = v.id) > 1 "
                          "OR EXISTS (SELECT 1 FROM visual_twins t WHERE t.a = v.id OR t.b = v.id))")
+        if usable:
+            from .config import ADOBE_ONLY_EXT
+
+            where.append("v.ext NOT IN (" + ",".join("?" for _ in ADOBE_ONLY_EXT) + ")")
+            params += sorted(ADOBE_ONLY_EXT)
         for t in [x for x in (tag or "").split(",") if x]:
             where.append("(EXISTS (SELECT 1 FROM json_each(a.auto_tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.tags) WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(a.ai_tags) WHERE value = ?))")
             params += [t, t, t]
@@ -1117,12 +1123,13 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         media_kind: str | None = None,
         duplicates: bool | None = None,
         tag: str | None = None,
+        usable: bool | None = None,
         sort: str = "recent",
         limit: int = Query(60, ge=1, le=500),
         offset: int = Query(0, ge=0),
         st: AppState = Depends(S),
     ):
-        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag)
+        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag, usable=usable)
         order = {
             "recent": "a.created_at DESC, a.title",
             "title": "a.title COLLATE NOCASE",
@@ -1163,6 +1170,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         media_kind: str | None = None,
         duplicates: bool | None = None,
         tag: str | None = None,
+        usable: bool | None = None,
         st: AppState = Depends(S),
     ):
         """Etiquetas con su recuento DENTRO de lo que se está viendo (mismos filtros que la
@@ -1170,7 +1178,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         medida (formato medido) o carpeta (deducidas de las carpetas del pack)."""
         from .tags import COLOR_TAGS, MEASURED
 
-        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag)
+        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag, usable=usable)
         counts: dict[str, int] = {}
         manual: set[str] = set()
         ai: set[str] = set()

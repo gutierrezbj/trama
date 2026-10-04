@@ -525,3 +525,20 @@ def test_nested_zip_contents_are_catalogued_one_level_deep(env, tmp_path):
     # la descarga del original sale del anidado y coincide byte a byte
     r = client.get(f"/api/assets/{video['id']}/original")
     assert r.status_code == 200 and r.content == files["opaque"].read_bytes()
+
+
+def test_only_usable_hides_adobe_only_formats(env, tmp_path):
+    """«Solo lo que uso» esconde lo que solo abre Adobe; el resto sigue igual, también en la franja."""
+    client = env["client"]
+    root = env["root"]
+    files = env["files"]
+    mogrt = tmp_path / "Titulo.mogrt"
+    with zipfile.ZipFile(mogrt, "w") as zf:
+        zf.writestr("definition.json", "{}")
+    pack = make_pack(root, {"Plantillas/Titulo.mogrt": mogrt, "Plantillas/Titulo.mp4": files["opaque"]}, name="uso.zip")
+    info = index_and_wait(client, source_id(client), pack.name)
+    all_ = client.get("/api/assets", params={"pack_id": info["id"]}).json()["items"]
+    usable = client.get("/api/assets", params={"pack_id": info["id"], "usable": True}).json()["items"]
+    assert {a["version"]["ext"] for a in all_} == {".mogrt", ".mp4"}
+    assert {a["version"]["ext"] for a in usable} == {".mp4"}
+    assert client.get("/api/tags", params={"pack_id": info["id"], "usable": True}).status_code == 200

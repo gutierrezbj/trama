@@ -348,6 +348,8 @@ export interface AssetFilters {
   media_kind?: string;
   duplicates?: boolean;
   tag?: string[];
+  /** Esconde lo que solo abre Adobe (MOGRT, .aep, .prproj, .look). */
+  usable?: boolean;
   sort?: string;
   limit?: number;
   offset?: number;

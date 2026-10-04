@@ -42,6 +42,8 @@ interface Props {
   emptyHint?: string;
   /** Modo presentación: sin banner técnico y solo recursos ya analizados (nada roto a la vista). */
   presenting?: boolean;
+  onlyUsable?: boolean;
+  onOnlyUsable?: (v: boolean) => void;
 }
 
 const PAGE = 120;
@@ -76,6 +78,7 @@ export function Explore(props: Props) {
       media_kind: state.mediaKind || undefined,
       duplicates: state.duplicates || undefined,
       tag: state.tags,
+      usable: props.onlyUsable || undefined,
       sort: state.sort,
       ...fixed,
     }),
@@ -212,6 +215,11 @@ export function Explore(props: Props) {
           <button type="button" className="chip" aria-pressed={state.vertical} onClick={() => set({ vertical: !state.vertical })}>Vertical</button>
           <button type="button" className="chip" aria-pressed={state.short} onClick={() => set({ short: !state.short })}>Menos de 5 s</button>
           <button type="button" className="chip" aria-pressed={state.availability === "available"} onClick={() => set({ availability: state.availability === "available" ? "" : "available" })}>Listos</button>
+          {props.onOnlyUsable && (
+            <button type="button" className="chip" aria-pressed={!!props.onlyUsable} title="Esconde lo que solo abre Adobe (plantillas MOGRT, proyectos de After Effects y Premiere)" onClick={() => props.onOnlyUsable?.(!props.onlyUsable)}>
+              Solo lo que uso
+            </button>
+          )}
           <button type="button" className="chip chip-icon" aria-pressed={more} aria-expanded={more} aria-label="Más filtros" title="Más filtros" onClick={() => setMore(!more)}><IconSliders /></button>
           {activeFilters && <button type="button" className="chip chip-clear" onClick={clear}>✕ Limpiar filtros</button>}
           <span className="count" aria-live="polite">{total === null ? "Cargando…" : `${total} ${total === 1 ? "recurso" : "recursos"}`}</span>
