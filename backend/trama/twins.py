@@ -25,7 +25,8 @@ MAX_HAMMING = 20         # candidatos
 MAX_RELATIVE_DIFF = 0.10  # diferencia relativa al contenido (32×32 gris)
 MIN_STD = 6.0            # por debajo, imagen plana (negra, blanca): no se compara
 BAND_BITS = 8
-BUCKET_CAP = 600         # cubetas enormes = imágenes casi iguales en esa franja por ser planas
+BUCKET_CAP = 600
+MAX_TWINS = 20          # más parejas que esto = huella degenerada, no versiones         # cubetas enormes = imágenes casi iguales en esa franja por ser planas
 
 
 def visual_print(thumb: Path) -> dict:
@@ -118,6 +119,13 @@ def rebuild_twins(db: Database) -> int:
                 if diff is not None:
                     va, vb = sorted((a["version_id"], b["version_id"]))
                     pairs[(va, vb)] = round(diff, 4)
+    # Un recurso con decenas de «versiones» no tiene versiones: es una huella degenerada (miniaturas
+    # casi vacías, plantillas con el mismo fondo). Pasó con ~500 GIF de vista previa en blanco.
+    degree: collections.Counter = collections.Counter()
+    for a, b in pairs:
+        degree[a] += 1
+        degree[b] += 1
+    pairs = {k: d for k, d in pairs.items() if degree[k[0]] <= MAX_TWINS and degree[k[1]] <= MAX_TWINS}
     with db.tx() as conn:
         conn.execute("DELETE FROM visual_twins")
         conn.executemany("INSERT INTO visual_twins(a, b, diff) VALUES (?, ?, ?)", [(a, b, d) for (a, b), d in pairs.items()])

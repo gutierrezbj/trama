@@ -128,3 +128,39 @@ def test_measure_look_names_the_dominant_color(tmp_path):
     Image.new("RGB", (200, 120), (200, 20, 200)).save(path)
     look = measure_look(path)
     assert list(look["hues"]) == ["magenta"] and look_tags(look, has_alpha=False) == ["magenta"]
+
+
+def test_animated_gif_thumbnail_uses_the_middle_frame(tmp_path):
+    """El primer fotograma de un GIF animado suele estar en blanco: la miniatura sale del central."""
+    from PIL import Image
+
+    from trama.config import Settings
+    from trama.media import generate_derivative
+
+    frames = [Image.new("RGB", (40, 40), c) for c in ((255, 255, 255), (255, 255, 255), (220, 30, 30), (220, 30, 30))]
+    gif = tmp_path / "anim.gif"
+    frames[0].save(gif, save_all=True, append_images=frames[1:], duration=100, loop=0)
+    settings = Settings(data_dir=tmp_path, allowed_roots=[])
+    settings.ensure_dirs()
+    dest = tmp_path / "thumb.jpg"
+    generate_derivative(settings, None, "thumb", gif, {"media_kind": "image"}, dest, None)
+    r, g, b = Image.open(dest).convert("RGB").getpixel((20, 20))
+    assert r > 180 and g < 90  # rojo del fotograma central, no blanco
+
+
+def test_degenerate_twin_clusters_are_dropped(tmp_path):
+    """Si una huella «se parece» a decenas de recursos a la vez, no son versiones: se descartan."""
+    from trama.db import Database
+    from trama import twins
+
+    db = Database(tmp_path / "c.sqlite")
+    db.migrate()
+    tiny = bytes([10] * 512 + [200] * 512)
+    with db.tx() as conn:
+        for i in range(30):
+            vid = f"ver_{i}"
+            conn.execute("INSERT INTO asset_versions(id, sha256, size, ext, media_kind, analysis_status, created_at) VALUES (?, ?, 1, '.gif', 'image', 'done', 'x')", (vid, vid))
+            conn.execute("INSERT INTO assets(id, version_id, original_title, title, created_at, updated_at) VALUES (?, ?, 'a', 'a', 'x', 'x')", (f"ast_{i}", vid))
+            conn.execute("INSERT INTO vprints(version_id, dhash, tiny, flat, aspect, duration, media_kind, created_at) VALUES (?, ?, ?, 0, 1.0, NULL, 'image', 'x')",
+                         (vid, "f" * 64, tiny))
+    assert twins.rebuild_twins(db) == 0
