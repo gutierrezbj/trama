@@ -390,3 +390,4 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Pruebas: 54/54.
 - Tras indexar los anidados: ~5.400 recursos nuevos (2.278 imágenes, 2.105 plantillas/LUT, 1.003 vídeos, 57 audios); vistas previas sin fallos (66 .prproj/.aep sin vista previa posible).
 - Incidencia: las parejas de posibles versiones saltaron de 530 a 142.860. Causa: ~500 GIF de vista previa cuyo primer fotograma está en blanco → miniaturas iguales. Arreglo: la miniatura de un GIF animado sale del fotograma central (receta thumb-v2) y se descartan las huellas con más de 20 parejas (`MAX_TWINS`). Pruebas: 56/56.
+- Afinado de posibles versiones: fuera los hermanos de una serie (misma carpeta, otro nombre: fotogramas de secuencia, iconos de una colección) y las muestras de pack grabadas en el mismo plató («Tutorials/Video_Thumbnails»). En la biblioteca real: 1.881 → ~550 parejas, ya versiones de verdad (Camera Shake MOBILE/HD/SQUARE/4K, .mov/.mp4).
