@@ -73,6 +73,9 @@ def _has_words(text: str) -> bool:
 
 def _folder_label(folder: str) -> str:
     folder = re.sub(r"-\d{8}T\d{6}Z-\d+-?\d*$", "", folder).strip()  # sufijo de descarga de Drive
+    stripped = re.sub(r"-\d{4}(-\d{2}){5}-utc( \(\d+\))?$", "", folder).strip()  # sufijo de descarga de plantillas
+    if stripped != folder:  # «vhs-transitions» → «Vhs Transitions»
+        folder = " ".join(w.capitalize() for w in stripped.replace("-", " ").split())
     words = [w if _ACRONYM.match(w) or not w.isupper() else w.capitalize() for w in re.sub(r"[_]+", " ", folder).split()]
     return " ".join(words)
 
@@ -86,7 +89,8 @@ def smart_title(file_name: str, rel_path: str) -> str | None:
         return None
     if Path(file_name).suffix.lower() in LUT_EXT:
         return f"LUT {stem}"
-    folders = [f for f in rel_path.replace("\\", "/").split("!/")[-1].split("/")[:-1] if f]
+    inner = rel_path.replace("\\", "/").split("!/", 1)[-1].replace("!/", "/")  # anidados: el ZIP cuenta como carpeta
+    folders = [re.sub(r"\.zip$", "", f, flags=re.I) for f in inner.split("/")[:-1] if f]
     picked: list[str] = []
     for folder in reversed(folders):
         label = _folder_label(folder)
