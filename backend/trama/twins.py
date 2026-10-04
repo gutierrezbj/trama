@@ -119,6 +119,24 @@ def rebuild_twins(db: Database) -> int:
                 if diff is not None:
                     va, vb = sorted((a["version_id"], b["version_id"]))
                     pairs[(va, vb)] = round(diff, 4)
+    # Hermanos de una serie no son versiones: en la misma carpeta y con otro nombre (fotogramas de
+    # una secuencia «LightBulb 00025/00026», iconos de una colección). El mismo nombre en otro
+    # formato («Mask.mov» / «Mask.mp4») o en otra carpeta («4K/…» / «HD/…») sí cuenta.
+    where_is: dict[str, tuple[str, str]] = {}
+    for r in db.query("SELECT version_id, inner_path FROM pack_entries WHERE version_id IS NOT NULL"):
+        if r["version_id"] not in where_is:
+            path = r["inner_path"]
+            folder, _, name = path.rpartition("/")
+            where_is[r["version_id"]] = (folder, name.rsplit(".", 1)[0].lower())
+    def siblings(a: str, b: str) -> bool:
+        wa, wb = where_is.get(a), where_is.get(b)
+        return bool(wa and wb and wa[0] == wb[0] and wa[1] != wb[1])
+
+    def demo_clip(v: str) -> bool:
+        # muestras de un pack grabadas todas en el mismo plató («Tutorials/Video_Thumbnails»)
+        w = where_is.get(v)
+        return bool(w and "video_thumbnails" in w[0].lower())
+    pairs = {k: d for k, d in pairs.items() if not siblings(*k) and not (demo_clip(k[0]) and demo_clip(k[1]))}
     # Un recurso con decenas de «versiones» no tiene versiones: es una huella degenerada (miniaturas
     # casi vacías, plantillas con el mismo fondo). Pasó con ~500 GIF de vista previa en blanco.
     degree: collections.Counter = collections.Counter()
