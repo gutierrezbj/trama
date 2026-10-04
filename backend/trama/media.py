@@ -20,7 +20,7 @@ from .config import LUT_EXT, Settings, media_kind_for
 
 RECIPES = {
     "lut_demo": "lut-demo-v1",
-    "thumb": "thumb-v1",
+    "thumb": "thumb-v2",
     "proxy": "proxy-v1",
     "proxy_dark": "proxy-bg-v1",
     "proxy_light": "proxy-bg-v1",
@@ -531,6 +531,10 @@ def generate_derivative(
 
     if kind == "thumb" and (media_kind == "image" or analysis.get("preview_support") == "image"):
         with Image.open(source) as im:
+            frames = getattr(im, "n_frames", 1)
+            if frames > 1:
+                # GIF animado: el primer fotograma suele estar vacío; el central ya enseña la animación
+                im.seek(frames // 2)
             im = ImageOps.exif_transpose(im) or im
             im = im.convert("RGBA")
             im.thumbnail((settings.thumb_max_width, settings.thumb_max_width * 4))

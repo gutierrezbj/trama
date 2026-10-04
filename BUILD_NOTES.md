@@ -388,3 +388,5 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Títulos: el ZIP anidado cuenta como carpeta y se le quita el sufijo de descarga («vhs-transitions-2025-…-utc» → «Vhs Transitions»).
 - Formatos de DaVinci reconocidos: `.preset` (ajustes del proyecto) y `.setting` (Fusion), además de `.drfx`.
 - Pruebas: 54/54.
+- Tras indexar los anidados: ~5.400 recursos nuevos (2.278 imágenes, 2.105 plantillas/LUT, 1.003 vídeos, 57 audios); vistas previas sin fallos (66 .prproj/.aep sin vista previa posible).
+- Incidencia: las parejas de posibles versiones saltaron de 530 a 142.860. Causa: ~500 GIF de vista previa cuyo primer fotograma está en blanco → miniaturas iguales. Arreglo: la miniatura de un GIF animado sale del fotograma central (receta thumb-v2) y se descartan las huellas con más de 20 parejas (`MAX_TWINS`). Pruebas: 56/56.
