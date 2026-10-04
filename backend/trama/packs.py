@@ -12,6 +12,7 @@ Reglas (docs/ARQUITECTURA.md):
 from __future__ import annotations
 
 import hashlib
+import tempfile
 import os
 import posixpath
 import shutil
@@ -87,7 +88,7 @@ def classify_entry(info: zipfile.ZipInfo, settings: Settings) -> EntryInfo:
     if file_name.startswith("._") or any(p.lower() == "__macosx" for p in parts[:-1]):
         kind = "ignored"  # basura de macOS (AppleDouble), no es multimedia
     elif ext in ARCHIVE_EXT:
-        kind = "ignored"  # no se extraen ZIP anidados
+        kind = "ignored"  # el ZIP anidado no es un recurso; su contenido se cataloga aparte (un nivel)
     elif ext in MEDIA_EXTENSIONS:
         kind = media_kind_for(ext)
     else:
@@ -95,7 +96,45 @@ def classify_entry(info: zipfile.ZipInfo, settings: Settings) -> EntryInfo:
     return EntryInfo(inner, file_name, ext, kind, info.file_size, info.compress_size, info.CRC & 0xFFFFFFFF, reason)
 
 
-def read_index(zip_path, settings: Settings) -> list[EntryInfo]:
+# ZIP dentro del ZIP (p. ej. descargas de plantillas): se cataloga su contenido, un solo nivel.
+# La ruta interna de esas entradas es «carpeta/plantilla.zip!/dentro/archivo.mov».
+NESTED_SEP = "!/"
+NESTED_MAX_BYTES = 4 * 1024**3
+
+
+def _copy_member_to_temp(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> str:
+    fd, path = tempfile.mkstemp(prefix="trama-anidado-", suffix=".zip")
+    with os.fdopen(fd, "wb") as out, zf.open(info) as src:
+        shutil.copyfileobj(src, out, CHUNK)
+    return path
+
+
+def read_nested_index(zf: zipfile.ZipFile, outer: EntryInfo, info: zipfile.ZipInfo, settings: Settings) -> list[EntryInfo]:
+    """Entradas de un ZIP anidado, con las mismas comprobaciones de seguridad que el exterior."""
+    if outer.unsafe_reason or outer.size > NESTED_MAX_BYTES:
+        return []
+    path = _copy_member_to_temp(zf, info)
+    try:
+        try:
+            nz = zipfile.ZipFile(path)
+        except zipfile.BadZipFile:
+            return []
+        with nz:
+            out = []
+            for i in nz.infolist():
+                if i.is_dir() or decode_name(i).endswith("/"):
+                    continue
+                e = classify_entry(i, settings)
+                if e.ext in ARCHIVE_EXT:
+                    continue  # un solo nivel: ZIP dentro de ZIP dentro de ZIP no se abre
+                e.inner_path = f"{outer.inner_path}{NESTED_SEP}{e.inner_path}"
+                out.append(e)
+            return out
+    finally:
+        os.unlink(path)
+
+
+def read_index(zip_path, settings: Settings, nested: bool = True) -> list[EntryInfo]:
     """`zip_path` puede ser una ruta o un archivo con seek (p. ej. un ZIP en Drive por rangos)."""
     try:
         zf = zipfile.ZipFile(zip_path)
@@ -105,7 +144,15 @@ def read_index(zip_path, settings: Settings) -> list[EntryInfo]:
         infos = [i for i in zf.infolist() if not i.is_dir() and not decode_name(i).endswith("/")]
         if len(infos) > settings.zip_max_entries:
             raise PackError(f"El ZIP tiene {len(infos)} entradas; el límite es {settings.zip_max_entries}")
-        return [classify_entry(i, settings) for i in infos]
+        entries = []
+        for i in infos:
+            e = classify_entry(i, settings)
+            entries.append(e)
+            if nested and e.ext in ARCHIVE_EXT:
+                entries.extend(read_nested_index(zf, e, i, settings))
+        if len(entries) > settings.zip_max_entries:
+            raise PackError(f"El ZIP tiene {len(entries)} entradas contando los anidados; el límite es {settings.zip_max_entries}")
+        return entries
 
 
 # ------------------------------------------------------------------ catálogo
@@ -400,12 +447,47 @@ def _extract_from(source, entry: dict, tmp: Path, digest, should_cancel, on_byte
         _extract_member(source, entry, tmp, digest, should_cancel, on_bytes)
         return
     with zipfile.ZipFile(source) as zf:
-        _extract_member(zf, entry, tmp, digest, should_cancel, on_bytes)
+        try:
+            _extract_member(zf, entry, tmp, digest, should_cancel, on_bytes)
+        finally:
+            close_nested(zf)
+
+
+def _find(zf: zipfile.ZipFile, inner: str) -> zipfile.ZipInfo | None:
+    return next((i for i in zf.infolist() if decode_name(i).replace("\\", "/").strip("/") == inner), None)
+
+
+def _nested_zip(zf: zipfile.ZipFile, outer: str) -> zipfile.ZipFile:
+    """ZIP anidado abierto desde una copia temporal; se guarda en el ZIP exterior para que un lote
+    de entradas del mismo anidado no lo vuelva a sacar. Se borra con `close_nested`."""
+    cache = zf.__dict__.setdefault("_trama_nested", {})
+    if outer not in cache:
+        info = _find(zf, outer)
+        if info is None:
+            raise PackError("El ZIP anidado ya no está en el pack")
+        for old in list(cache):  # uno abierto cada vez: los lotes van ordenados por ruta
+            close_nested(zf, old)
+        path = _copy_member_to_temp(zf, info)
+        cache[outer] = (path, zipfile.ZipFile(path))
+    return cache[outer][1]
+
+
+def close_nested(zf: zipfile.ZipFile, only: str | None = None) -> None:
+    cache = zf.__dict__.get("_trama_nested", {})
+    for outer in [only] if only else list(cache):
+        item = cache.pop(outer, None)
+        if item:
+            item[1].close()
+            Path(item[0]).unlink(missing_ok=True)
 
 
 def _extract_member(zf: zipfile.ZipFile, entry: dict, tmp: Path, digest, should_cancel, on_bytes) -> None:
     written = 0
-    info = next((i for i in zf.infolist() if decode_name(i).replace("\\", "/").strip("/") == entry["inner_path"]), None)
+    inner = entry["inner_path"]
+    if NESTED_SEP in inner:
+        outer, inner = inner.split(NESTED_SEP, 1)
+        zf = _nested_zip(zf, outer)
+    info = _find(zf, inner)
     if info is None:
         raise PackError("La entrada ya no está en el ZIP")
     with zf.open(info) as src, open(tmp, "wb") as out:
@@ -449,6 +531,7 @@ class PackReader:
         self.close()
 
     def close(self) -> None:
+        close_nested(self.zf)
         self.zf.close()
         if self._remote is not None:
             self._remote.close()

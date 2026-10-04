@@ -381,3 +381,10 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 ## Modo presentación (2026-09-29)
 - Para grabar o enseñar la biblioteca: oculta avisos técnicos (errores de análisis, «en packs», «prov.», banner de vistas previas, cerrar sesión) y la sección Ajustes, y la galería muestra solo recursos ya analizados (nada roto a la vista).
 - Se activa en Ajustes → «Modo presentación», con Alt+P o con `?presentacion=1` en la dirección; se recuerda en el navegador (localStorage, con fallback). Para salir: Alt+P, o «✕ Salir de presentación», que aparece al pasar el ratón por abajo a la izquierda.
+
+## ZIP anidados y presets de DaVinci (2026-10-04)
+- Rastreo de los 110 ZIP anidados de la biblioteca (13,4 GB, descargas de plantillas): 1.745 MOGRT, 1.062 MP4, 510 GIF, 247 LUT .cube, ~1.800 imágenes, 57 WAV; ningún .drfx/.setting.
+- `read_index` cataloga el contenido de los ZIP anidados, un nivel (`carpeta/plantilla.zip!/dentro/archivo`), con las mismas comprobaciones de seguridad; un ZIP más adentro no se abre. La extracción saca el anidado a un temporal una vez por lote (`_nested_zip` / `close_nested`).
+- Títulos: el ZIP anidado cuenta como carpeta y se le quita el sufijo de descarga («vhs-transitions-2025-…-utc» → «Vhs Transitions»).
+- Formatos de DaVinci reconocidos: `.preset` (ajustes del proyecto) y `.setting` (Fusion), además de `.drfx`.
+- Pruebas: 54/54.

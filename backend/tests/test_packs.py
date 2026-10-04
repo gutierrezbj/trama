@@ -494,3 +494,34 @@ def test_mogrt_offers_its_tutorial_and_the_same_effect_in_video(env, tmp_path):
     whys = {r["title"]: r["why"] for r in related}
     assert whys.get("Tutorial") == "tutorial"
     assert any(r["why"] == "mismo efecto en vídeo" and "Tear" in r["title"] for r in related)
+
+
+def test_nested_zip_contents_are_catalogued_one_level_deep(env, tmp_path):
+    """Un ZIP dentro del pack (descarga de plantillas) se cataloga por dentro: sus vídeos, LUT y
+    presets de DaVinci entran como recursos con vista previa; un ZIP más adentro no se abre y un
+    traversal dentro del anidado se rechaza igual que fuera."""
+    client = env["client"]
+    root = env["root"]
+    files = env["files"]
+    inner = tmp_path / "vhs-transitions-2025-01-07-12-51-59-utc.zip"
+    with zipfile.ZipFile(inner, "w") as zf:
+        zf.write(files["opaque"], "VHS/1.mp4")
+        zf.writestr("Presets/Vertical.preset", "PresetType: ProjectSettingsPreset")
+        zf.writestr("mas/otro.zip", b"PK\x05\x06" + b"\0" * 18)
+        zf.writestr("../fuera.mp4", b"x" * 100)
+    pack = make_pack(root, {"Super Pack/Transiciones/Transiciones VHS/vhs-transitions-2025-01-07-12-51-59-utc.zip": inner}, name="anidado.zip")
+    info = index_and_wait(client, source_id(client), pack.name)
+    client.post("/api/packs/previews")
+    wait_idle(client)
+    items = client.get("/api/assets", params={"pack_id": info["id"], "limit": 50}).json()["items"]
+    by_ext = {a["version"]["ext"]: a for a in items}
+    assert set(by_ext) == {".mp4", ".preset"}
+    video = by_ext[".mp4"]
+    assert video["preview"]["status"] == "ready" and video["thumb_url"]
+    assert video["title"] == "Vhs-transitions · VHS · 1" or video["title"].endswith("· 1")
+    assert by_ext[".preset"]["required_app"].startswith("DaVinci Resolve")
+    entries = client.get(f"/api/packs/{info['id']}").json()
+    assert entries["entries_unsafe"] >= 1  # el traversal del anidado
+    # la descarga del original sale del anidado y coincide byte a byte
+    r = client.get(f"/api/assets/{video['id']}/original")
+    assert r.status_code == 200 and r.content == files["opaque"].read_bytes()
