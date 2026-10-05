@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ConfirmButton } from "./Confirm";
-import { api, type Config, type Import, type Job, type Pack, type PackFolder, formatBytes } from "./api";
+import { api, type Config, type Import, type Job, type License, type Pack, type PackFolder, formatBytes } from "./api";
 import { useAsync, useInterval } from "./hooks";
 import { IconBox, IconFolder } from "./icons";
 import { PreviewsBanner } from "./Previews";
@@ -216,6 +216,13 @@ export function PackDetail({ id, onBack, onExplore }: { id: string; onBack: () =
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         </h1>
         <span className="muted">{p.entries_media} recursos · {p.extracted} extraídos · {formatBytes(p.bytes_total)}</span>
+        <label className="tiny license-pick">Licencia{" "}
+          <select value={p.license ?? "unknown"} onChange={async (e) => { await api.setPackLicense(p.id, e.target.value as License); pack.reload(true); }}>
+            <option value="licensed">Con licencia (se puede entregar a clientes)</option>
+            <option value="reference">Solo referencia (para aprender y decidir)</option>
+            <option value="unknown">Sin indicar</option>
+          </select>
+        </label>
         {((p.already_identical ?? 0) > 0 || (p.already_similar ?? 0) > 0) && (
           <div className="notice warn already">
             <strong>¡Epa, esto ya lo tenías!</strong> De {p.entries_media} recursos, {p.already_identical ?? 0} están idénticos en otro pack

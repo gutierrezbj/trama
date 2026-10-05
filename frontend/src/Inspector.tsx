@@ -241,6 +241,17 @@ export function Inspector(props: Props) {
           <Fact label="Tamaño" value={formatBytes(asset.version.size)} status="done" />
         </dl>
 
+        {asset.license === "reference" && (
+          <div className="notice license-ref">
+            <strong>Solo referencia.</strong> Para un trabajo de cliente, consigue la versión con licencia y cárgasela al proyecto.
+            <div className="row" style={{ marginTop: 8 }}>
+              <a className="btn small" href={licensedSearchUrl(asset, "envato")} target="_blank" rel="noopener noreferrer">Buscar en Envato</a>
+              <a className="btn small" href={licensedSearchUrl(asset, "motionarray")} target="_blank" rel="noopener noreferrer">Buscar en Motion Array</a>
+            </div>
+          </div>
+        )}
+        {asset.license === "licensed" && <p className="tiny">✔ Con licencia: se puede usar en trabajos de clientes.</p>}
+
         {asset.related_videos && asset.related_videos.length > 0 && (
           <div>
             <h3 className="section-title">Míralo en vídeo</h3>
@@ -540,4 +551,16 @@ function Transport({ playing, time, dur, onToggle, onSeek }: { playing: boolean;
       <input type="range" aria-label="Posición" min={0} max={dur || 0} step={0.01} value={Math.min(time, dur || 0)} onChange={(e) => onSeek(Number(e.target.value))} />
     </div>
   );
+}
+
+/** Búsqueda del mismo tipo de recurso en una tienda con licencia, con sus etiquetas en inglés. */
+function licensedSearchUrl(asset: Asset, store: "envato" | "motionarray"): string {
+  const NOT_CONTENT = new Set(["alpha", "4k", "full hd", "vertical", "horizontal", "square", "with audio", "loop", "lut", "music", "sfx"]);
+  const words = [...(asset.ai_tags ?? []), ...(asset.auto_tags ?? [])].filter((t) => !NOT_CONTENT.has(t) && !/ (fps|bpm)$/.test(t)).slice(0, 2);
+  const q = (words.length ? words.join(" ") : asset.title).trim();
+  if (store === "envato") {
+    const kind = asset.version.media_kind === "audio" ? "sound-effects" : asset.version.media_kind === "image" ? "photos" : "stock-video";
+    return `https://elements.envato.com/${kind}/${encodeURIComponent(q.replace(/\s+/g, "-"))}`;
+  }
+  return `https://motionarray.com/browse/?q=${encodeURIComponent(q)}`;
 }

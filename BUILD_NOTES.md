@@ -395,3 +395,8 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 ## «Solo lo que uso» (2026-10-04)
 - Interruptor en la galería, encendido de serie y recordado en el navegador: esconde lo que solo abre Adobe (`ADOBE_ONLY_EXT`: .mogrt, .aep, .prproj, .look) para editar en DaVinci o CapCut. Parámetro `usable` en `/api/assets` y `/api/tags` (la franja cuenta igual). Los recuentos de la barra lateral siguen contando todo.
 - Decisión del propietario: lo que falte se busca, se compra o se fabrica; no se renderizan los MOGRT. Pruebas: 57/57.
+
+## Con licencia / Solo referencia (2026-10-05)
+- `packs.license` (migración 0013): licensed | reference | unknown, editable en la página del pack. Cada recurso hereda la mejor de sus packs (con que uno tenga licencia, cuenta como licensed).
+- Ficha de un recurso de referencia: aviso y «Buscar en Envato» / «Buscar en Motion Array» con sus etiquetas (comprobado que `elements.envato.com/stock-video/<etiqueta>` da resultados). Filtro «Licencia» en Explorar.
+- Flujo del propietario: los packs de referencia sirven para aprender y decidir; lo que se entrega a un cliente se licencia aparte y se carga al proyecto. Pruebas: 58/58.
