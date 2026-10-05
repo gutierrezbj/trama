@@ -400,3 +400,8 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - `packs.license` (migración 0013): licensed | reference | unknown, editable en la página del pack. Cada recurso hereda la mejor de sus packs (con que uno tenga licencia, cuenta como licensed).
 - Ficha de un recurso de referencia: aviso y «Buscar en Envato» / «Buscar en Motion Array» con sus etiquetas (comprobado que `elements.envato.com/stock-video/<etiqueta>` da resultados). Filtro «Licencia» en Explorar.
 - Flujo del propietario: los packs de referencia sirven para aprender y decidir; lo que se entrega a un cliente se licencia aparte y se carga al proyecto. Pruebas: 58/58.
+
+## Índice del «trastero» (2026-10-05)
+- `trama/external.py` + migración 0014 (`external_items`): fichas de paquetes de catálogos externos que no se descargan (nombre, categoría, tamaño, portada, página). Buscan con el mismo vocabulario y alias que la biblioteca («humo» → Smoke 2k). La IA de visión puede leer la portada (`describe_covers`) para describir qué contiene.
+- `/api/external/search`; en Explorar, al buscar o filtrar por etiqueta, «📦 También en tu trastero» con portada, tamaño y enlace a la página del catálogo. Oculto en modo presentación.
+- Primer catálogo: Editor Infinity (382 paquetes, leídos de su área de miembros con la sesión del propietario; enlaces a la página del listado, no a las descargas con nonce).

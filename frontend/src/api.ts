@@ -338,6 +338,18 @@ export interface AiFull {
 export type License = "licensed" | "reference" | "unknown";
 export const LICENSE_LABELS: Record<License, string> = { licensed: "Con licencia", reference: "Solo referencia", unknown: "Sin indicar" };
 
+export interface ExternalItem {
+  id: string;
+  source: string;
+  name: string;
+  category: string;
+  size_bytes: number | null;
+  page_url: string;
+  cover_url: string;
+  description: string;
+  tags: string[];
+}
+
 export interface AssetFilters {
   q?: string;
   category?: string[];
@@ -432,6 +444,7 @@ export const api = {
   releasePack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ released: number }>(`/api/packs/${id}/release`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
   storage: () => request<Storage>("/api/storage"),
+  externalSearch: (q: string, limit = 6) => request<{ total: number; items: ExternalItem[] }>(`/api/external/search${qs({ q, limit })}`),
 
   aiStatus: () => request<{ openai: boolean; local: boolean; default_models: string[] }>("/api/ai/status"),
   aiTest: (models: string[] = [], size = 50) => request<{ run_id: string; models: string[] }>("/api/ai/test", { method: "POST", body: JSON.stringify({ models, size }) }),

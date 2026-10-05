@@ -1341,6 +1341,13 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             raise HTTPException(404, "Hoja aún no generada")
         return FileResponse(path, media_type="image/jpeg")
 
+    @app.get("/api/external/search")
+    def external_search(q: str = "", limit: int = Query(8, ge=1, le=50), st: AppState = Depends(S)):
+        """«También en tu trastero»: paquetes de catálogos externos que casan con la búsqueda."""
+        from .external import search
+
+        return search(st.db, q, limit)
+
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str, st: AppState = Depends(S)):
         row = get_asset_row(st.db, asset_id)
