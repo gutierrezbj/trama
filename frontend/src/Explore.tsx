@@ -16,12 +16,13 @@ export interface ExploreState {
   mediaKind: "" | "video" | "audio" | "image" | "other";
   duplicates: boolean;
   tags: string[];
+  license: "" | "licensed" | "reference";
   sort: "recent" | "title" | "duration" | "size";
   offset: number;
 }
 
 export const initialExplore: ExploreState = {
-  alpha: false, vertical: false, short: false, categories: [], availability: "", analysis: "", packId: "", mediaKind: "", duplicates: false, tags: [], sort: "recent", offset: 0,
+  alpha: false, vertical: false, short: false, categories: [], availability: "", analysis: "", packId: "", mediaKind: "", duplicates: false, tags: [], license: "", sort: "recent", offset: 0,
 };
 
 interface Props {
@@ -79,6 +80,7 @@ export function Explore(props: Props) {
       duplicates: state.duplicates || undefined,
       tag: state.tags,
       usable: props.onlyUsable || undefined,
+      license: state.license || undefined,
       sort: state.sort,
       ...fixed,
     }),
@@ -187,7 +189,7 @@ export function Explore(props: Props) {
   }, [firstRow, lastRow, cols, total, count, loadPage]);
 
   const set = (patch: Partial<ExploreState>) => onState({ ...state, ...patch, offset: 0 });
-  const activeFilters = state.alpha || state.vertical || state.short || state.categories.length > 0 || !!state.availability || !!state.analysis || !!state.packId || !!state.mediaKind || state.duplicates || state.tags.length > 0 || !!query;
+  const activeFilters = state.alpha || state.vertical || state.short || state.categories.length > 0 || !!state.availability || !!state.analysis || !!state.packId || !!state.mediaKind || state.duplicates || state.tags.length > 0 || !!state.license || !!query;
   const clear = () => onState({ ...initialExplore, sort: state.sort });
   const showFilters = props.showFilters !== false;
 
@@ -257,6 +259,13 @@ export function Explore(props: Props) {
               <option value="available">Original disponible</option>
               <option value="archived">En pack, sin extraer</option>
               <option value="offline">Original offline</option>
+            </select>
+          </label>
+          <label>Licencia
+            <select value={state.license} onChange={(e) => set({ license: e.target.value as ExploreState["license"] })}>
+              <option value="">Todas</option>
+              <option value="licensed">Con licencia (para clientes)</option>
+              <option value="reference">Solo referencia</option>
             </select>
           </label>
           <label>Tipo

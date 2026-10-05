@@ -542,3 +542,25 @@ def test_only_usable_hides_adobe_only_formats(env, tmp_path):
     assert {a["version"]["ext"] for a in all_} == {".mogrt", ".mp4"}
     assert {a["version"]["ext"] for a in usable} == {".mp4"}
     assert client.get("/api/tags", params={"pack_id": info["id"], "usable": True}).status_code == 200
+
+
+def test_license_is_set_per_pack_and_inherited_by_its_resources(env):
+    """Licencia por pack: el recurso la hereda (con que un pack tenga licencia, cuenta con
+    licencia) y se puede filtrar por ella."""
+    client = env["client"]
+    root = env["root"]
+    files = env["files"]
+    ref = make_pack(root, {"FX/clip.mp4": files["opaque"], "FX/otro.mov": files["alpha"]}, name="referencia.zip")
+    lic = make_pack(root, {"Comprado/clip.mp4": files["opaque"]}, name="comprado.zip")
+    sid = source_id(client)
+    p_ref = index_and_wait(client, sid, ref.name)
+    p_lic = index_and_wait(client, sid, lic.name)
+    assert client.patch(f"/api/packs/{p_ref['id']}", json={"license": "reference"}).json()["license"] == "reference"
+    client.patch(f"/api/packs/{p_lic['id']}", json={"license": "licensed"})
+    assert client.patch(f"/api/packs/{p_lic['id']}", json={"license": "pirata"}).status_code == 400
+    items = {a["original_title"]: a for a in client.get("/api/assets", params={"pack_id": p_ref["id"]}).json()["items"]}
+    # clip.mp4 está en los dos packs (mismos bytes): cuenta como con licencia; otro.mov solo en el de referencia
+    assert client.get(f"/api/assets/{items['clip.mp4']['id']}").json()["license"] == "licensed"
+    assert client.get(f"/api/assets/{items['otro.mov']['id']}").json()["license"] == "reference"
+    refs = client.get("/api/assets", params={"license": "reference"}).json()["items"]
+    assert [a["original_title"] for a in refs] == ["otro.mov"]

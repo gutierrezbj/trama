@@ -190,6 +190,7 @@ def serialize_asset(state: AppState, row: dict, detail: bool = False) -> dict:
         "video_links": analysis.get("video_links") or [],
         "pages": analysis.get("pages"),
         "provider_preview": provider_preview,
+        "license": db.one("SELECT " + LICENSE_OF_VERSION.format(v="?") + " AS l", (version_id,))["l"],
         "lut": analysis.get("lut"),
         "locations": locations,
         "derivatives": derivatives,
@@ -275,6 +276,14 @@ def mogrt_related_videos(db: Database, row: dict) -> list[dict]:
     return out
 
 
+# Licencia de un recurso: la mejor de los packs donde está (licensed > reference > unknown).
+LICENSE_OF_VERSION = (
+    "COALESCE((SELECT CASE MAX(CASE p.license WHEN 'licensed' THEN 2 WHEN 'reference' THEN 1 ELSE 0 END) "
+    "WHEN 2 THEN 'licensed' WHEN 1 THEN 'reference' ELSE 'unknown' END "
+    "FROM pack_entries le JOIN packs p ON p.id = le.pack_id WHERE le.version_id = {v}), 'unknown')"
+)
+
+
 ASSET_SELECT = (
     "SELECT a.*, v.sha256, v.identity_kind, v.size, v.ext, v.media_kind, v.analysis_status, v.analysis_error, v.analysis, v.analyzed_at "
     "FROM assets a JOIN asset_versions v ON v.id = a.version_id"
@@ -310,6 +319,7 @@ class PackIndexCreate(BaseModel):
 
 class PackPatch(BaseModel):
     label: str | None = None
+    license: str | None = None  # licensed | reference | unknown
 
 
 class ExtractBody(BaseModel):
@@ -878,6 +888,11 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         if body.label is not None and body.label.strip():
             with st.db.tx() as conn:
                 conn.execute("UPDATE packs SET label = ? WHERE id = ?", (body.label.strip(), pack_id))
+        if body.license is not None:
+            if body.license not in ("licensed", "reference", "unknown"):
+                raise HTTPException(400, "Licencia desconocida")
+            with st.db.tx() as conn:
+                conn.execute("UPDATE packs SET license = ? WHERE id = ?", (body.license, pack_id))
         return _pack_out(st, dict(st.db.one("SELECT * FROM packs WHERE id = ?", (pack_id,))))
 
     @app.post("/api/packs/{pack_id}/reindex", status_code=202)
@@ -1044,6 +1059,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         duplicates: bool | None = None,
         tag: str | None = None,
         usable: bool | None = None,
+        license: str | None = None,
     ) -> tuple[str, list]:
         """Filtros comunes de la galería y del recuento de etiquetas."""
         where, params = [], []
@@ -1083,6 +1099,9 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         if duplicates:
             where.append("(a.duplicate_of IS NOT NULL OR (SELECT COUNT(*) FROM locations l WHERE l.version_id = v.id) > 1 "
                          "OR EXISTS (SELECT 1 FROM visual_twins t WHERE t.a = v.id OR t.b = v.id))")
+        if license in ("licensed", "reference", "unknown"):
+            where.append(LICENSE_OF_VERSION.format(v="v.id") + " = ?")
+            params.append(license)
         if usable:
             from .config import ADOBE_ONLY_EXT
 
@@ -1124,12 +1143,13 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         duplicates: bool | None = None,
         tag: str | None = None,
         usable: bool | None = None,
+        license: str | None = None,
         sort: str = "recent",
         limit: int = Query(60, ge=1, le=500),
         offset: int = Query(0, ge=0),
         st: AppState = Depends(S),
     ):
-        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag, usable=usable)
+        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag, usable=usable, license=license)
         order = {
             "recent": "a.created_at DESC, a.title",
             "title": "a.title COLLATE NOCASE",
@@ -1171,6 +1191,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         duplicates: bool | None = None,
         tag: str | None = None,
         usable: bool | None = None,
+        license: str | None = None,
         st: AppState = Depends(S),
     ):
         """Etiquetas con su recuento DENTRO de lo que se está viendo (mismos filtros que la
@@ -1178,7 +1199,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         medida (formato medido) o carpeta (deducidas de las carpetas del pack)."""
         from .tags import COLOR_TAGS, MEASURED
 
-        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag, usable=usable)
+        clause, params = _asset_where(q=q, category=category, alpha=alpha, orientation=orientation, max_duration=max_duration, min_duration=min_duration, availability=availability, favorite=favorite, analysis=analysis, collection_id=collection_id, selection_id=selection_id, pack_id=pack_id, media_kind=media_kind, duplicates=duplicates, tag=tag, usable=usable, license=license)
         counts: dict[str, int] = {}
         manual: set[str] = set()
         ai: set[str] = set()

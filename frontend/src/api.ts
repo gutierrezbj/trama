@@ -63,6 +63,7 @@ export interface Pack {
   entries_total: number;
   entries_media: number;
   entries_unsafe: number;
+  license?: License;
   already_identical?: number;
   already_similar?: number;
   bytes_total: number;
@@ -152,6 +153,8 @@ export interface Asset {
   video_links?: string[];
   pages?: number | null;
   in_collections: string[];
+  /** Heredada de sus packs: con que uno tenga licencia, cuenta como licensed. */
+  license: License;
   /** Posibles versiones del mismo recurso en otro archivo (huella visual); solo en la ficha. */
   /** Solo MOGRT: vídeos que enseñan el efecto (tutorial de su colección y el mismo efecto en vídeo). */
   related_videos?: { asset_id: string; title: string; why: string; ext: string; duration_s: number | null; thumb_url: string | null }[];
@@ -332,6 +335,9 @@ export interface AiFull {
   message: string | null;
 }
 
+export type License = "licensed" | "reference" | "unknown";
+export const LICENSE_LABELS: Record<License, string> = { licensed: "Con licencia", reference: "Solo referencia", unknown: "Sin indicar" };
+
 export interface AssetFilters {
   q?: string;
   category?: string[];
@@ -350,6 +356,7 @@ export interface AssetFilters {
   tag?: string[];
   /** Esconde lo que solo abre Adobe (MOGRT, .aep, .prproj, .look). */
   usable?: boolean;
+  license?: License;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -414,6 +421,7 @@ export const api = {
     request<{ packs: { pack_id: string; label: string; job_id: string }[] }>("/api/packs/index", { method: "POST", body: JSON.stringify({ source_id: sourceId, path }) }),
   reindexPack: (id: string) => request<{ job_id: string }>(`/api/packs/${id}/reindex`, { method: "POST" }),
   patchPack: (id: string, label: string) => request<Pack>(`/api/packs/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  setPackLicense: (id: string, license: License) => request<Pack>(`/api/packs/${id}`, { method: "PATCH", body: JSON.stringify({ license }) }),
   extractPack: (id: string, prefix = "", entryIds: string[] = []) =>
     request<{ job_id: string | null; entries: number; bytes: number; message?: string }>(`/api/packs/${id}/extract`, { method: "POST", body: JSON.stringify({ prefix, entry_ids: entryIds }) }),
   packDriveUpload: (id: string) => request<{ job_id: string | null; message: string | null }>(`/api/packs/${id}/drive-upload`, { method: "POST" }),
