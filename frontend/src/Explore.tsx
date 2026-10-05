@@ -1,6 +1,6 @@
 import { PreviewsBanner } from "./Previews";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, type Asset, type AssetFilters, type Pack, type TagCount, CATEGORY_LABELS } from "./api";
+import { api, type Asset, type AssetFilters, type ExternalItem, type Pack, type TagCount, CATEGORY_LABELS, formatBytes } from "./api";
 import { AssetCard } from "./AssetCard";
 import { useDebounced, useInterval, useReducedMotion } from "./hooks";
 import { IconSliders } from "./icons";
@@ -66,6 +66,15 @@ export function Explore(props: Props) {
   const [more, setMore] = useState(false);
   const [allTags, setAllTags] = useState<TagCount[]>([]);
   const [tagsOpen, setTagsOpen] = useState(false);
+  // «También en tu trastero»: paquetes de catálogos externos que casan con lo que buscas.
+  const [external, setExternal] = useState<{ total: number; items: ExternalItem[] } | null>(null);
+  const externalQuery = [debounced, ...state.tags].join(" ").trim();
+  useEffect(() => {
+    if (!externalQuery || props.presenting) { setExternal(null); return; }
+    let alive = true;
+    api.externalSearch(externalQuery).then((r) => alive && setExternal(r)).catch(() => alive && setExternal(null));
+    return () => { alive = false; };
+  }, [externalQuery, props.presenting]);
   const filters = useMemo<AssetFilters>(
     () => ({
       q: debounced,
@@ -305,6 +314,24 @@ export function Explore(props: Props) {
             <span><input type="checkbox" checked={state.duplicates} onChange={(e) => set({ duplicates: e.target.checked })} /> Solo duplicados y candidatos</span>
           </label>
         </div>
+      )}
+
+      {external && external.total > 0 && (
+        <details className="trastero">
+          <summary>📦 También en tu trastero: <strong>{external.total}</strong> {external.total === 1 ? "paquete" : "paquetes"} de {external.items[0]?.source} casan con «{externalQuery}»</summary>
+          <div className="trastero-items">
+            {external.items.map((x) => (
+              <a key={x.id} className="trastero-item" href={x.page_url} target="_blank" rel="noopener noreferrer" title={x.description || x.name}>
+                {x.cover_url ? <img src={x.cover_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="twin-ph" />}
+                <span className="twin-body">
+                  <strong>{x.name}</strong>
+                  <span className="tiny">{x.category}{x.size_bytes ? ` · ${formatBytes(x.size_bytes)}` : ""} · sin descargar ↗</span>
+                </span>
+              </a>
+            ))}
+          </div>
+          {external.total > external.items.length && <p className="tiny">Y {external.total - external.items.length} más: afina la búsqueda.</p>}
+        </details>
       )}
 
       {error && <div className="notice warn">No se pudo cargar el catálogo: {error}</div>}

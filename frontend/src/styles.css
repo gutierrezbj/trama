@@ -401,3 +401,11 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 
 .notice.license-ref { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .license-pick { display: inline-flex; align-items: center; gap: 6px; }
+
+.trastero { border: 1px dashed var(--line-strong); border-radius: var(--r-l); padding: 10px 14px; margin-bottom: 16px; }
+.trastero summary { cursor: pointer; color: var(--text-2); }
+.trastero[open] summary { margin-bottom: 10px; }
+.trastero-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.trastero-item { display: flex; gap: 10px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: var(--r); color: var(--text); text-decoration: none; }
+.trastero-item:hover { background: var(--surface); }
+.trastero-item img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; flex: none; }

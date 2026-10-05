@@ -164,3 +164,22 @@ def test_degenerate_twin_clusters_are_dropped(tmp_path):
             conn.execute("INSERT INTO vprints(version_id, dhash, tiny, flat, aspect, duration, media_kind, created_at) VALUES (?, ?, ?, 0, 1.0, NULL, 'image', 'x')",
                          (vid, "f" * 64, tiny))
     assert twins.rebuild_twins(db) == 0
+
+
+def test_external_catalog_index_is_searchable_in_spanish_and_english(env):
+    """El trastero: fichas de un catálogo externo (sin descargar) que salen al buscar."""
+    from trama.external import import_items, parse_size
+
+    client = env["client"]
+    db = client.app.state.trama.db
+    assert parse_size("4.5 GB") == int(4.5 * 1024**3) and parse_size("—") is None
+    r = import_items(db, "Editor Infinity", [
+        {"name": "Lens FX", "category": "ASSETS FX", "size": "4.5 GB", "page_url": "https://ejemplo/p/1", "cover_url": ""},
+        {"name": "Smoke 2k", "category": "VFX PACKS", "size": "3.1 GB", "page_url": "https://ejemplo/p/2", "cover_url": ""},
+    ])
+    assert r == {"added": 2, "updated": 0, "removed": 0}
+    hits = client.get("/api/external/search", params={"q": "humo"}).json()  # alias en español de «smoke»
+    assert [h["name"] for h in hits["items"]] == ["Smoke 2k"]
+    assert client.get("/api/external/search", params={"q": "lens"}).json()["total"] == 1
+    # volver a importar sin un paquete lo quita
+    assert import_items(db, "Editor Infinity", [{"name": "Lens FX", "category": "ASSETS FX", "size": "4.5 GB"}])["removed"] == 1
