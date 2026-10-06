@@ -183,3 +183,10 @@ def test_external_catalog_index_is_searchable_in_spanish_and_english(env):
     assert client.get("/api/external/search", params={"q": "lens"}).json()["total"] == 1
     # volver a importar sin un paquete lo quita
     assert import_items(db, "Editor Infinity", [{"name": "Lens FX", "category": "ASSETS FX", "size": "4.5 GB"}])["removed"] == 1
+
+
+def test_davinci_templates_are_categorized_as_templates():
+    from trama.importer import infer_category
+
+    for ext in (".setting", ".drfx", ".drp", ".preset"):
+        assert infer_category(f"Pack/Transitions/Zoom{ext}", "other", ext) == "plantillas"

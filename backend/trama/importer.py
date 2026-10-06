@@ -37,7 +37,7 @@ def infer_category(rel_path: str, media_kind: str, ext: str) -> str:
         return "imagenes"
     if ext in (".cube", ".3dl", ".look"):
         return "color"
-    if ext in (".mogrt", ".aep", ".prproj", ".drp", ".drfx"):
+    if ext in (".mogrt", ".aep", ".prproj", ".drp", ".drfx", ".setting", ".preset"):
         return "plantillas"
     if ext in (".pdf", ".txt", ".html"):
         return "documentacion"
