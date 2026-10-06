@@ -12,6 +12,7 @@ Reglas (docs/ARQUITECTURA.md):
 from __future__ import annotations
 
 import hashlib
+import re
 import tempfile
 import os
 import posixpath
@@ -336,17 +337,29 @@ def link_provider_previews(db: Database, pack_id: str | None = None) -> int:
         p = posixpath.normpath(r["inner_path"])
         key = (posixpath.dirname(p), Path(posixpath.basename(p)).stem.lower())
         by_stem.setdefault(key, []).append(dict(r))
+    # Segunda oportunidad dentro de un pack: la muestra en una carpeta paralela con la misma
+    # subcarpeta y el mismo nombre («Ready Files/Titles/Title_13.setting» ↔
+    # «All Files Preview/Titles/Title_13.gif»). Nombres comparados sin mayúsculas ni separadores.
+    def loose(path: str) -> tuple[str, str]:
+        p = posixpath.normpath(path)
+        stem = re.sub(r"[\s_\-]+", " ", Path(posixpath.basename(p)).stem.lower()).strip()
+        return (posixpath.basename(posixpath.dirname(p)).lower(), stem)
+
+    by_loose: dict[tuple[str, str], list[dict]] = {}
+    if pack_id:
+        for r in rows:
+            by_loose.setdefault(loose(r["inner_path"]), []).append(dict(r))
     linked = 0
     with db.tx() as conn:
-        for group in by_stem.values():
-            others = [g for g in group if g["media_kind"] == "other"]
-            previews = [g for g in group if g["media_kind"] in ("video", "image")]
-            if not others or not previews:
-                continue
-            preview = sorted(previews, key=lambda g: g["media_kind"] != "video")[0]
-            for o in others:
-                conn.execute("UPDATE assets SET provider_preview_asset_id = ? WHERE id = ? AND provider_preview_asset_id IS NULL", (preview["asset_id"], o["asset_id"]))
-                linked += 1
+        for groups in (by_stem, by_loose):
+            for group in groups.values():
+                others = [g for g in group if g["media_kind"] == "other"]
+                previews = [g for g in group if g["media_kind"] in ("video", "image")]
+                if not others or not previews:
+                    continue
+                preview = sorted(previews, key=lambda g: g["media_kind"] != "video")[0]
+                for o in others:
+                    linked += conn.execute("UPDATE assets SET provider_preview_asset_id = ? WHERE id = ? AND provider_preview_asset_id IS NULL", (preview["asset_id"], o["asset_id"])).rowcount
     return linked
 
 

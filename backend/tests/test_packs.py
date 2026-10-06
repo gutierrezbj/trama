@@ -564,3 +564,19 @@ def test_license_is_set_per_pack_and_inherited_by_its_resources(env):
     assert client.get(f"/api/assets/{items['otro.mov']['id']}").json()["license"] == "reference"
     refs = client.get("/api/assets", params={"license": "reference"}).json()["items"]
     assert [a["original_title"] for a in refs] == ["otro.mov"]
+
+
+def test_template_preview_in_a_parallel_folder_is_linked(env):
+    """La muestra de una plantilla puede estar en una carpeta paralela del mismo pack:
+    «Ready Files/Titles/Title_13.setting» ↔ «All Files Preview/Titles/Title 13.mp4»."""
+    client = env["client"]
+    root = env["root"]
+    files = env["files"]
+    tpl = root / "Title_13.setting"
+    tpl.write_text("{ Tools = ordered() {} }")
+    pack = make_pack(root, {"YT/Ready Files/Titles/Title_13.setting": tpl, "YT/All Files Preview/Titles/Title 13.mp4": files["opaque"]}, name="yt.zip")
+    tpl.unlink()
+    info = index_and_wait(client, source_id(client), pack.name)
+    items = client.get("/api/assets", params={"pack_id": info["id"]}).json()["items"]
+    setting = next(a for a in items if a["version"]["ext"] == ".setting")
+    assert setting["provider_preview"] and setting["provider_preview"]["title"].startswith("Title")
