@@ -451,6 +451,7 @@ export const api = {
   aiLatest: () => request<AiRun | null>("/api/ai/runs/latest"),
   aiRetry: (runId: string) => request<{ retrying: number }>(`/api/ai/runs/${runId}/retry`, { method: "POST" }),
   aiFull: (model: string, maxUsd: number) => request<{ run_id: string; pending: number }>("/api/ai/full", { method: "POST", body: JSON.stringify({ model, max_usd: maxUsd }) }),
+  aiPending: (model: string) => request<{ model: string; pending: number; cost_usd: number; minutes: number }>(`/api/ai/pending${qs({ model })}`),
   aiFullLatest: () => request<AiFull | null>("/api/ai/full/latest"),
   aiVote: (runId: string, versionId: string, winner: string) =>
     request<{ ok: boolean }>(`/api/ai/runs/${runId}/vote`, { method: "POST", body: JSON.stringify({ version_id: versionId, winner }) }),

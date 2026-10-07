@@ -602,12 +602,19 @@ def generate_derivative(
     if kind == "lut_demo":
         # Antes/después sobre una imagen de referencia SINTÉTICA (testsrc2). Es una demostración,
         # no el material del usuario; la interfaz lo rotula así.
-        lut_file = str(source).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        # El LUT se copia a un nombre limpio: dentro del filtro de FFmpeg, apóstrofos, comas o
+        # corchetes del nombre original rompían la orden («Super_Cinematic_LUT's», 144 fallos).
+        safe = tmp.with_name("_lut_origen" + source.suffix.lower())
+        shutil.copyfile(source, safe)
+        lut_file = str(safe).replace("\\", "/").replace(":", "\\:")
         w, h = 480, 270
         cmd = [tools.ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size={w}x{h}:rate=1",
                "-filter_complex", f"[0:v]split[a][b];[b]lut3d=file='{lut_file}'[c];[a][c]hstack,format=yuvj420p",
                "-frames:v", "1", "-q:v", "3", "-f", "image2", "-c:v", "mjpeg", str(tmp)]
-        _ffmpeg(cmd, timeout, register, tmp, dest)
+        try:
+            _ffmpeg(cmd, timeout, register, tmp, dest)
+        finally:
+            safe.unlink(missing_ok=True)
         return {"width": w * 2, "height": h}
 
     if kind == "audio_proxy":

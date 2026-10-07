@@ -580,3 +580,16 @@ def test_template_preview_in_a_parallel_folder_is_linked(env):
     items = client.get("/api/assets", params={"pack_id": info["id"]}).json()["items"]
     setting = next(a for a in items if a["version"]["ext"] == ".setting")
     assert setting["provider_preview"] and setting["provider_preview"]["title"].startswith("Title")
+
+
+def test_lut_demo_works_with_an_apostrophe_in_the_path(env, tools, tmp_path):
+    """«Super_Cinematic_LUT's/…cube»: el apóstrofo rompía la orden de FFmpeg."""
+    from trama.media import generate_derivative
+
+    folder = tmp_path / "Super_Cinematic_LUT's (NEW)"
+    folder.mkdir()
+    lut = folder / "Grade, [2].cube"
+    lut.write_text("LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n")
+    dest = tmp_path / "demo.jpg"
+    info = generate_derivative(env["settings"], tools, "lut_demo", lut, {"media_kind": "other", "preview_support": "lut_demo"}, dest, None)
+    assert dest.exists() and info["width"] == 960
