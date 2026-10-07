@@ -409,3 +409,4 @@ select:focus, .input:focus, textarea:focus { outline: 2px solid var(--accent); o
 .trastero-item { display: flex; gap: 10px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: var(--r); color: var(--text); text-decoration: none; }
 .trastero-item:hover { background: var(--surface); }
 .trastero-item img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; flex: none; }
+.ok-text { color: var(--ok, #6fbf73); }

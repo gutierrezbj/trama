@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type AiFull } from "./api";
 import { useAsync, useInterval } from "./hooks";
 
@@ -182,8 +182,14 @@ function FullPanel({ full, running, summary, total, model, cap, onModel, onCap, 
   onCap: (n: number) => void;
   onLaunch: () => void;
 }) {
-  const est = summary.find((m) => m.model === model);
   const active = !!full && (full.status === "queued" || full.status === "running");
+  // Lo que falta (no el total): el botón solo se enciende si hay algo nuevo que etiquetar.
+  const [pending, setPending] = useState<{ pending: number; cost_usd: number; minutes: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.aiPending(model).then((p) => alive && setPending(p)).catch(() => alive && setPending(null));
+    return () => { alive = false; };
+  }, [model, active, full?.status]);
   return (
     <div className="panel" style={{ marginBottom: 18 }}>
       <h2>Toda la biblioteca</h2>
@@ -209,8 +215,14 @@ function FullPanel({ full, running, summary, total, model, cap, onModel, onCap, 
               {[1, 2, 5, 10].map((n) => <option key={n} value={n}>{n} $</option>)}
             </select>
           </label>
-          <span className="tiny">Estimado para {total}: {money(est?.projected_cost_usd)} · {est?.projected_hours ?? "—"} h a un recurso por vez (va de 4 en 4). Lo ya etiquetado por ese modelo se salta.</span>
-          <button type="button" className="btn primary" disabled={running} onClick={onLaunch}>Etiquetar toda la biblioteca</button>
+          {pending && pending.pending === 0 ? (
+            <span className="tiny ok-text">✔ Todo etiquetado con este modelo: no hay nada pendiente. Cuando entren packs nuevos, aquí verás cuántos faltan.</span>
+          ) : (
+            <span className="tiny">{pending ? `${pending.pending} pendientes de ${total} · ~${money(pending.cost_usd)} · ~${pending.minutes} min` : "Calculando lo pendiente…"}. Lo ya etiquetado se salta.</span>
+          )}
+          <button type="button" className="btn primary" disabled={running || !pending || pending.pending === 0} onClick={onLaunch}>
+            {pending && pending.pending > 0 ? `Etiquetar ${pending.pending} pendientes` : "Etiquetar pendientes"}
+          </button>
         </div>
       )}
     </div>

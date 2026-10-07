@@ -91,3 +91,16 @@ def test_full_run_labels_the_library_keeps_human_descriptions_and_respects_the_b
     # una segunda pasada no repite nada; con tope ya superado se para sin gastar
     assert client.post("/api/ai/full", json={"model": "openai:gpt-6-luna", "max_usd": 1}).json()["pending"] == 0
     wait_idle(client)
+
+
+def test_pending_counts_only_what_is_left(env, monkeypatch):
+    client = env["client"]
+    import_all(client)
+    wait_idle(client)
+    p = client.get("/api/ai/pending", params={"model": "openai:gpt-6-luna"}).json()
+    assert p["pending"] == 2  # los dos vídeos con vista previa, sin etiquetar todavía
+    monkeypatch.setattr(vision, "describe", lambda *a, **k: {"description": "x", "tags": ["y"], "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.0001, "seconds": 1.0})
+    client.app.state.trama.settings.openai_api_key = "sk-prueba"
+    client.post("/api/ai/full", json={"model": "openai:gpt-6-luna", "max_usd": 1})
+    wait_idle(client)
+    assert client.get("/api/ai/pending", params={"model": "openai:gpt-6-luna"}).json()["pending"] == 0

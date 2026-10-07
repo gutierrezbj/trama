@@ -1315,6 +1315,16 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
         st.worker.notify()
         return {"run_id": run_id, "pending": len(pending_for_full(st.db, body.model))}
 
+    @app.get("/api/ai/pending")
+    def ai_pending(model: str = "openai:gpt-6-luna", st: AppState = Depends(S)):
+        """Lo que falta por etiquetar con ese modelo y lo que costaría, medido en lo ya hecho."""
+        from .vision import pending_for_full
+
+        n = len(pending_for_full(st.db, model))
+        avg = st.db.one("SELECT AVG(cost_usd) AS c, AVG(seconds) AS s FROM ai_labels WHERE model = ? AND error IS NULL", (model,))
+        cost, secs = (avg["c"] or 0.0), (avg["s"] or 2.0)
+        return {"model": model, "pending": n, "cost_usd": round(n * cost, 4), "minutes": round(n * secs / 4 / 60, 1)}
+
     @app.get("/api/ai/full/latest")
     def ai_full_latest(st: AppState = Depends(S)):
         run = st.db.one("SELECT * FROM ai_runs WHERE kind = 'full' ORDER BY created_at DESC LIMIT 1")

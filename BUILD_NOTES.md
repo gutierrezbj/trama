@@ -405,3 +405,7 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - `trama/external.py` + migración 0014 (`external_items`): fichas de paquetes de catálogos externos que no se descargan (nombre, categoría, tamaño, portada, página). Buscan con el mismo vocabulario y alias que la biblioteca («humo» → Smoke 2k). La IA de visión puede leer la portada (`describe_covers`) para describir qué contiene.
 - `/api/external/search`; en Explorar, al buscar o filtrar por etiqueta, «📦 También en tu trastero» con portada, tamaño y enlace a la página del catálogo. Oculto en modo presentación.
 - Primer catálogo: Editor Infinity (382 paquetes, leídos de su área de miembros con la sesión del propietario; enlaces a la página del listado, no a las descargas con nonce).
+
+## IA: lo pendiente, no el total; LUT con apóstrofo (2026-10-07)
+- Página IA de visión: `/api/ai/pending` cuenta lo que falta por etiquetar con el modelo y estima su coste y minutos con lo ya medido; si no falta nada, «✔ Todo etiquetado» y el botón queda apagado (antes enseñaba el coste de toda la biblioteca y confundía).
+- LUT: 144 demostraciones fallaban por un apóstrofo en la ruta («Super_Cinematic_LUT's») que rompía el filtro de FFmpeg. El LUT se copia a un nombre limpio antes de aplicarlo. Pruebas: 63/63.
