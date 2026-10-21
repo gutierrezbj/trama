@@ -1,4 +1,4 @@
-"""Punto de entrada: `python -m trama serve|migrate|check`."""
+"""Punto de entrada: `python -m trama serve|migrate|check|respaldo-diario|…`."""
 from __future__ import annotations
 
 import argparse
@@ -23,6 +23,10 @@ def main(argv: list[str] | None = None) -> int:
     rs = sub.add_parser("restore", help="Restaura un snapshot (con el servidor parado)")
     rs.add_argument("folder")
     rs.add_argument("--yes", action="store_true", help="No pedir confirmación")
+    rd = sub.add_parser("respaldo-diario", help="Copia comprimida del catálogo (cron): guarda las últimas N y sube una por semana a Drive")
+    rd.add_argument("--conservar", type=int, default=14)
+    rd.add_argument("--conservar-drive", type=int, default=8)
+    rd.add_argument("--sin-drive", action="store_true")
     vb = sub.add_parser("verify-backup", help="Comprueba la integridad de un snapshot")
     vb.add_argument("folder")
     up = sub.add_parser("subir", help="Sube packs ZIP (o un ZIP de ZIPs) a TRAMA/Packs en Google Drive, sin catalogarlos aquí")
@@ -92,6 +96,13 @@ def main(argv: list[str] | None = None) -> int:
         db.migrate()
         result = create_backup(db, settings, args.label)
         print(f"Respaldo: {result['path']}\n  fichas: {result['assets']}  derivados: {result['derivatives_files']} ({result['derivatives_bytes'] // 2**20} MB)  sha256 catálogo: {result['db_sha256'][:16]}…")
+        return 0
+
+    if args.command == "respaldo-diario":
+        from .respaldo_diario import ejecutar
+
+        r = ejecutar(settings, args.conservar, args.conservar_drive, drive=not args.sin_drive)
+        print(f"Respaldo diario: {r['copia']} ({r['mb']} MB)  podadas: {len(r['borradas'])}  Drive: {r['drive']}")
         return 0
 
     if args.command == "verify-backup":

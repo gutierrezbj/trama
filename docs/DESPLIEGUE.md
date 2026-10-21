@@ -42,4 +42,7 @@ Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el **Se
 - Seguridad: `ss -tlnp | grep docker-proxy | grep 0.0.0.0` vacío.
 - `curl -I https://trama.jrgblanco.com/api/assets` → 401 sin sesión.
 - Inicio de sesión, vistas previas visibles, extracción de un recurso desde Drive y descarga del original.
-- Respaldo diario: `docker compose exec app python -m trama backup` en cron.
+- Respaldo diario (cron del servidor, 04:15): `docker exec trama-app python -m trama respaldo-diario` →
+  `/data/respaldos/diario/catalogo-AAAA-MM-DD.sqlite.gz` (~50 MB, se guardan 14) y, una vez por semana, la
+  copia a la carpeta TRAMA/Respaldos de Drive (se guardan 8; las viejas van a la papelera de Drive).
+  Restaurar: descomprimir con `gunzip` y seguir el paso de restauración del catálogo.
