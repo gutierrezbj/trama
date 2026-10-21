@@ -409,3 +409,9 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 ## IA: lo pendiente, no el total; LUT con apóstrofo (2026-10-07)
 - Página IA de visión: `/api/ai/pending` cuenta lo que falta por etiquetar con el modelo y estima su coste y minutos con lo ya medido; si no falta nada, «✔ Todo etiquetado» y el botón queda apagado (antes enseñaba el coste de toda la biblioteca y confundía).
 - LUT: 144 demostraciones fallaban por un apóstrofo en la ruta («Super_Cinematic_LUT's») que rompía el filtro de FFmpeg. El LUT se copia a un nombre limpio antes de aplicarlo. Pruebas: 63/63.
+
+## Respaldo diario del catálogo (2026-10-22)
+- `python -m trama respaldo-diario` (`trama/respaldo_diario.py`): copia consistente del catálogo con la API de copia de SQLite, `integrity_check`, gzip → `<data>/respaldos/diario/catalogo-AAAA-MM-DD.sqlite.gz`; guarda las últimas 14 (`--conservar`). Una vez por semana sube la del día a TRAMA/Respaldos en Drive y deja 8 (`--conservar-drive`); las viejas van a la papelera de Drive, no se borran del todo. Si Drive falla, la copia local ya está hecha y lo dice.
+- Solo el catálogo: medido en el servidor 199 MB → 49 MB comprimido en 5 s. Los derivados (12 GB) se rehacen desde los packs y los originales viven en Drive.
+- Espacio: ~0,7 GB en el servidor (14 copias) y ~0,4 GB en Drive (8 copias).
+- Cron del servidor a las 04:15. Pruebas: 65/65.
