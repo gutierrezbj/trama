@@ -478,7 +478,7 @@ def create_app(settings: Settings, db: Database | None = None, start_worker: boo
             "configured": s.drive_configured,
             "connected": s.drive_configured and s.drive_token_file.is_file(),
             "folder_name": s.drive_folder_name,
-            "scope": "drive.file (solo archivos creados por TRAMA)",
+            "scope": "drive.file + drive.readonly (puede leer todo Drive y solo lista TRAMA/Packs; escribe y borra solo lo que crea TRAMA)",
             "client_file": str(s.drive_client_file) if s.drive_client_file else None,
             "redirect_uri": None,
             "account": None,
