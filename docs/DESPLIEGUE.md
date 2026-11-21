@@ -40,6 +40,9 @@ Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el Serv
 5. **Drive**: copiar `client_secret.json` y `token.json` a `/data/drive/` (permisos 600). El token
    actual se renueva solo; para volver a conectar desde el servidor hace falta un cliente OAuth
    «Aplicación web» con el URI `https://trama.jrgblanco.com/api/drive/auth/callback`.
+   Con el cliente actual («Aplicación de escritorio») «Desconectar» en la web borra `token.json` y
+   «Conectar» falla con `redirect_uri_mismatch`: el token se genera por loopback (`http://localhost:<puerto>/`)
+   en un equipo con navegador y se copia a `/data/drive/token.json` (dueño `trama`, 600).
 6. **nginx**: copiar `deploy/nginx-trama.jrgblanco.com.conf` a `/etc/nginx/sites-available/`,
    enlazar en `sites-enabled`, `nginx -t` y recargar.
 7. **HTTPS** (lo ejecuta el propietario): `certbot --nginx -d trama.jrgblanco.com`.
