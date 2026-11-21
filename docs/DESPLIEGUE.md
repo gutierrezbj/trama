@@ -1,9 +1,19 @@
-# Despliegue en el Servidor 1 (estándar JRGB)
+# Despliegue en el KVM 4 (estándar JRGB)
 
 **Estado: desplegada el 27 sep 2026** en https://trama.jrgblanco.com (Let's Encrypt hasta el 26 dic 2026, renovación automática; HSTS).
 
-Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el **Servidor 1**
-(`72.62.41.234`), offset **+260** reservado en el Catálogo de Infraestructura JRGB, dominio
+**Servidor actual: KVM 4** (`srv2124842`): `root@2.24.54.188` o, por Tailscale, `root@srv2124842`
+(`100.121.105.84`). Producción compartida: solo se tocan `/opt/apps/trama`, el contenedor `trama-app`
+y su vhost; nada de `docker system/image/volume prune`, sin tocar el crontab (respaldo de las 04:15) y
+solo puertos del offset 260. El Servidor 1 viejo (`srs-prod`, `72.62.41.234`) ya no es producción:
+no desplegar allí.
+
+Actualizar: con el cambio en `main`,
+`ssh root@2.24.54.188 'cd /opt/apps/trama && git pull --ff-only && docker compose up -d --build'` y
+comprobar `https://trama.jrgblanco.com/api/health`.
+
+Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el Servidor 1, hoy en el
+**KVM 4**, offset **+260** reservado en el Catálogo de Infraestructura JRGB, dominio
 `trama.jrgblanco.com` (registro A creado por el propietario en Hostinger el 26 sep 2026).
 
 ## Modelo
@@ -24,7 +34,7 @@ Encargo del propietario (26 sep 2026): TRAMA como herramienta interna en el **Se
 3. **Arranque**: `docker compose up -d --build` en `/opt/apps/trama`. Comprobar
    `docker ps | grep trama-app` (healthy) y `curl -s 127.0.0.1:3260/api/auth/status`.
 4. **Catálogo**: en el PC, `python -m trama backup` (snapshot con catálogo y vistas previas);
-   copiarlo al servidor (`tar cf - <snapshot> | ssh root@srs-prod 'tar xf - -C /opt/apps/trama/import'`),
+   copiarlo al servidor (`tar cf - <snapshot> | ssh root@2.24.54.188 'tar xf - -C /opt/apps/trama/import'`),
    `chown -R 1000:1000 /opt/apps/trama/import` (el catálogo en WAL no abre en un montaje de solo lectura) y restaurar:
    `docker compose run --rm --no-deps -v /opt/apps/trama/import:/import app python -m trama restore /import/<snapshot> --yes`.
 5. **Drive**: copiar `client_secret.json` y `token.json` a `/data/drive/` (permisos 600). El token
