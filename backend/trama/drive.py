@@ -22,7 +22,7 @@ import httpx
 
 from .config import Settings
 
-SCOPE = "https://www.googleapis.com/auth/drive.file"
+SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly"
 
 
 class DriveError(RuntimeError):

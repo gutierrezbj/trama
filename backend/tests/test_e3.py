@@ -166,6 +166,10 @@ class FakeDrive:
         self.chunks_seen = 0
         self.token_refreshes = 0
         self.n = 0
+        self.scope = ""
+
+    def _visible(self, f: dict) -> bool:
+        return f.get("by_app") or "drive.readonly" in self.scope
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -176,6 +180,8 @@ class FakeDrive:
             body = dict(x.split("=", 1) for x in request.content.decode().split("&"))
             if body.get("grant_type") == "authorization_code":
                 assert body["code"] == "codigo-ok" and body.get("code_verifier")
+                from trama.drive import SCOPE
+                self.scope = SCOPE
                 return httpx.Response(200, json={"access_token": "at1", "refresh_token": "rt1", "expires_in": 3600})
             self.token_refreshes += 1
             return httpx.Response(200, json={"access_token": f"at{self.token_refreshes + 1}", "expires_in": 3600})
@@ -188,7 +194,7 @@ class FakeDrive:
             name = re.search(r"name = '((?:[^'\\]|\\.)*)'", q)
             parent = re.search(r"'([^']+)' in parents", q)
             if "mimeType != 'application/vnd.google-apps.folder'" in q:
-                files = [f for f in self.files.values() if f.get("mimeType") != "application/vnd.google-apps.folder" and not f.get("trashed")]
+                files = [f for f in self.files.values() if f.get("mimeType") != "application/vnd.google-apps.folder" and not f.get("trashed") and self._visible(f)]
                 if parent:
                     files = [f for f in files if f.get("parent", "root") == parent.group(1)]
                 return httpx.Response(200, json={"files": [{k: f[k] for k in ("id", "name", "size", "md5Checksum") if k in f} for f in files]})
@@ -202,7 +208,7 @@ class FakeDrive:
             meta = json.loads(request.content)
             self.n += 1
             fid = f"folder{self.n}"
-            self.files[fid] = {"id": fid, "name": meta["name"], "mimeType": meta["mimeType"], "trashed": False, "parent": (meta.get("parents") or ["root"])[0]}
+            self.files[fid] = {"id": fid, "name": meta["name"], "mimeType": meta["mimeType"], "trashed": False, "parent": (meta.get("parents") or ["root"])[0], "by_app": True}
             return httpx.Response(200, json={"id": fid})
         if path == "/upload/drive/v3/files" and method == "POST":
             meta = json.loads(request.content)
@@ -235,7 +241,7 @@ class FakeDrive:
         m = re.match(r"/drive/v3/files/([^/]+)$", path)
         if m and method == "GET":
             f = self.files.get(m.group(1))
-            if f is None:
+            if f is None or not self._visible(f):
                 return httpx.Response(404)
             if url.params.get("alt") == "media":
                 data = f["data"]
@@ -255,7 +261,7 @@ class FakeDrive:
         self.n += 1
         fid = f"file{self.n}"
         data = bytes(sess["data"])
-        self.files[fid] = {"id": fid, "name": sess["meta"]["name"], "size": str(len(data)), "md5Checksum": hashlib.md5(data).hexdigest(), "trashed": False, "data": data, "parent": (sess["meta"].get("parents") or ["root"])[0]}
+        self.files[fid] = {"id": fid, "name": sess["meta"]["name"], "size": str(len(data)), "md5Checksum": hashlib.md5(data).hexdigest(), "trashed": False, "data": data, "parent": (sess["meta"].get("parents") or ["root"])[0], "by_app": True}
         return {"id": fid, "md5Checksum": self.files[fid]["md5Checksum"], "size": str(len(data))}
 
 
@@ -288,7 +294,7 @@ def test_drive_oauth_upload_resume_verify_and_stream(drive_env):
     assert st["configured"] is True and st["connected"] is False
     # OAuth: URL con PKCE y alcance mínimo; callback con state válido guarda el token (solo backend).
     url = client.post("/api/drive/auth/start").json()["url"]
-    assert "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file" in url and "code_challenge=" in url
+    assert "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.readonly" in url and "code_challenge=" in url
     state = re.search(r"state=([^&]+)", url).group(1)
     assert client.get("/api/drive/auth/callback", params={"state": "falso", "code": "x"}).status_code == 400
     r = client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)

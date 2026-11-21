@@ -415,3 +415,8 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 - Solo el catálogo: medido en el servidor 199 MB → 49 MB comprimido en 5 s. Los derivados (12 GB) se rehacen desde los packs y los originales viven en Drive.
 - Espacio: ~0,7 GB en el servidor (14 copias) y ~0,4 GB en Drive (8 copias).
 - Cron del servidor a las 04:15. Pruebas: 65/65.
+
+## Packs dejados en Drive por otras vías (2026-11-21)
+- Síntoma: «Buscar packs nuevos en Drive» no veía un ZIP copiado a TRAMA/Packs con Drive para escritorio (respuesta `in_drive: 123, new: 0, other_files: 0`). Causa: alcance `drive.file`, que solo lista lo creado por TRAMA; el escaneo no filtra por tipo.
+- Arreglo: alcance `drive.file` + `drive.readonly` (ADR-003, adenda). El Drive simulado de los tests ahora oculta lo que no creó la app con solo `drive.file`; la prueba del escaneo fallaba con el alcance anterior y pasa con el nuevo. Pruebas: 65/65.
+- Pasos del propietario: añadir `https://www.googleapis.com/auth/drive.readonly` en «Acceso a datos» del cliente OAuth en Google Cloud y en TRAMA, Drive y copias: «Desconectar» y «Conectar con Google Drive».

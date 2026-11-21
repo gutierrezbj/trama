@@ -37,7 +37,7 @@ No modificar los originales. Medir rendimiento en el equipo real; no prometer ti
 - [x] Respaldos y restauración probada: snapshots consistentes con manifiesto y SHA-256, retención, verificación, restauración ensayada en test y comando `restore`; subida opcional del snapshot a Drive.
 - [ ] Despliegue y dominio solo mediante encargo específico → plan en `docs/DESPLIEGUE.md`, sin ejecutar.
 - [ ] Pendiente: crear el cliente OAuth en Google Cloud (propietario) y conectar Drive de verdad; primera subida real medida.
-- [ ] Pendiente menor: catalogar carpetas ya existentes en Drive (requeriría alcance `drive.readonly`; fuera de E3).
+- [x] Catalogar ZIP dejados en TRAMA/Packs por otras vías (Drive para escritorio, web): alcance `drive.file` + `drive.readonly` (ADR-003, adenda 2026-11-21). Requiere añadir el alcance en Google Cloud y reconectar Drive una vez.
 
 ## E4 — Integración Escenda
 - [ ] Validar contrato con implementación actual de Escenda.
