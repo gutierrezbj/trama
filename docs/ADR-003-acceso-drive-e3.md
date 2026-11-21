@@ -46,3 +46,15 @@ snapshots consistentes cuya restauración esté ensayada.
   real; BUILD_NOTES lo declara así.
 - Cambiar la contraseña exige editar `.env` y reiniciar; suficiente para un propietario.
 - E4 puede autenticar a Escenda con un token portador sin tocar el modelo de sesión.
+
+## Adenda (2026-11-21): lectura de lo que no subió TRAMA
+Un ZIP copiado a `TRAMA/Packs` con Drive para escritorio o la web no aparecía al «Buscar packs nuevos
+en Drive»: con `drive.file` Google solo lista los archivos creados por la propia app. Se pide además
+`drive.readonly`. TRAMA sigue listando solo `TRAMA/Packs` y solo escribe o borra lo que ella crea
+(`drive.file`); el permiso de lectura alcanza todo el Drive del propietario, por eso se acepta solo
+porque hay un único propietario y las credenciales viven en el servidor.
+
+Consecuencias: `drive.readonly` es un alcance restringido; Google avisa de app no verificada al
+conectar, aceptable para uso propio. El alcance hay que añadirlo en la pantalla de consentimiento del
+cliente OAuth y reconectar Drive una vez; el token anterior sigue funcionando con `drive.file` hasta
+entonces. El simulador de los tests oculta lo que no creó la app salvo con `drive.readonly`.

@@ -57,7 +57,7 @@ export function CopiasView({ config, busy, notice }: Props) {
               <strong>No configurado.</strong> TRAMA necesita un cliente OAuth propio (tipo «Aplicación de escritorio») creado en Google Cloud con la API de Drive activada. Descarga su <code>client_secret.json</code> y guárdalo en
               <div className="path" style={{ margin: "6px 0" }}>{config?.data_dir}\drive\client_secret.json</div>
               (o indica la ruta en <code>TRAMA_DRIVE_CLIENT_FILE</code>). Reinicia el servidor y vuelve aquí para conectar. URI de redirección a registrar: <code>{d.redirect_uri ?? "http://127.0.0.1:8765/api/drive/auth/callback"}</code>.
-              <div className="tiny" style={{ marginTop: 6 }}>Alcance mínimo: {d.scope}. Las credenciales quedan solo en el servidor; no se comparte nada ni se crean enlaces públicos.</div>
+              <div className="tiny" style={{ marginTop: 6 }}>Alcance: {d.scope}. Las credenciales quedan solo en el servidor; no se comparte nada ni se crean enlaces públicos.</div>
             </div>
           )}
           {d && d.configured && !d.connected && (
