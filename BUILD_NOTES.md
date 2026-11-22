@@ -419,10 +419,11 @@ Motivo: el propietario compró un bundle con licencia comercial (entregado como 
 ## Packs dejados en Drive por otras vías (2026-11-21)
 - Síntoma: «Buscar packs nuevos en Drive» no veía un ZIP copiado a TRAMA/Packs con Drive para escritorio (respuesta `in_drive: 123, new: 0, other_files: 0`). Causa: alcance `drive.file`, que solo lista lo creado por TRAMA; el escaneo no filtra por tipo.
 - Arreglo: alcance `drive.file` + `drive.readonly` (ADR-003, adenda). El Drive simulado de los tests ahora oculta lo que no creó la app con solo `drive.file`; la prueba del escaneo fallaba con el alcance anterior y pasa con el nuevo. Pruebas: 65/65.
-- Pasos del propietario: añadir `https://www.googleapis.com/auth/drive.readonly` en «Acceso a datos» del cliente OAuth en Google Cloud y en TRAMA, Drive y copias: «Desconectar» y «Conectar con Google Drive».
+- Pasos del propietario: añadir `https://www.googleapis.com/auth/drive.readonly` en «Acceso a datos» del cliente OAuth en Google Cloud y generar un token nuevo por loopback (el cliente es de escritorio; ver `docs/DESPLIEGUE.md`, paso 5). Hecho el 2026-11-21: el escaneo dio `in_drive 124, new 1` y «Taller JRGB - Maquina de estilos» quedó indexado con sus 5 vídeos con vista previa; su `00 LEEME` (.md) queda como ignorado porque TRAMA no cataloga Markdown.
 
 ## ZIP cambiados en Drive (2026-11-21)
 - «Buscar packs nuevos en Drive» también reindexa los packs que vinieron de Drive cuyo ZIP cambió: mismo id con otro md5, o mismo nombre con otro id (Drive para escritorio puede sustituir el archivo). Actualiza tamaño, md5 e id y encola el indexado con vistas previas. La respuesta trae `updated`.
 - Solo afecta a packs con origen en la carpeta de Drive; los subidos desde un equipo siguen mandando su ZIP local.
 - Limitación: el reindexado añade las entradas nuevas; una entrada con la misma ruta y contenido distinto conserva la versión anterior, y las que desaparecen del ZIP siguen en el catálogo.
 - Pruebas: 65/65, ejecutadas en un contenedor temporal en el KVM 4 (`git archive HEAD backend | ssh … docker run --rm -i --network none … python -m pytest`), porque el Mac estaba sin espacio.
+- En producción (2026-11-22): el ZIP del Taller con `00 LEEME` en PDF añadido dio `updated 1`; el PDF quedó catalogado con miniatura y el `.md` sigue ignorado.
