@@ -7,7 +7,7 @@ el original. Herramienta interna (Cuaderno de Protocolos JRGB, Kickoff parcial).
 Personales / «TRAMA — Biblioteca de producción».
 
 ## Current State
-- En producción en Servidor 1: https://trama.jrgblanco.com (offset +260, contenedor `trama-app`,
+- En producción en el KVM 4: https://trama.jrgblanco.com (offset +260, contenedor `trama-app`,
   127.0.0.1:3260, volumen `trama_trama-data`), con healthcheck y SA99. Detalle por entregas en `BUILD_NOTES.md`.
 - Biblioteca (sep 2026): ~11.800 recursos en 80 packs que viven solo en el Google Drive del propietario
   (`TRAMA/Packs`, verificados por md5); TRAMA los lee por rangos HTTP. El PC ya no guarda los ZIP.
@@ -20,7 +20,7 @@ Personales / «TRAMA — Biblioteca de producción».
 ## Tech Stack
 Python 3.13 + FastAPI + uvicorn; SQLite (WAL) con migraciones numeradas; worker en hilos con cola
 persistente; FFmpeg estático (paquete `static-ffmpeg`). React 18 + TypeScript + Vite. Google Drive
-REST v3 con httpx (OAuth PKCE, alcance `drive.file`). Desviación del stack estándar en ADR-001.
+REST v3 con httpx (OAuth PKCE, alcance `drive.file` + `drive.readonly`: lista todo `TRAMA/Packs`, escribe solo lo suyo). Desviación del stack estándar en ADR-001.
 
 ## Project Structure
 - `backend/trama/`: `api.py` (FastAPI), `worker.py` (cola y trabajos), `packs.py` (ZIP seguros,
@@ -42,5 +42,5 @@ REST v3 con httpx (OAuth PKCE, alcance `drive.file`). Desviación del stack est�
 ## Deploy
 Local (Windows): `scripts\setup.cmd` y `scripts\serve.cmd` → http://127.0.0.1:8765.
 Pruebas: `backend\.venv\Scripts\python -m pytest` desde `backend/`.
-Servidor 1: `docker compose up -d --build` en `/opt/apps/trama` (puerto 127.0.0.1:3260), nginx +
+KVM 4 (producción compartida, nunca `srs-prod`): `docker compose up -d --build` en `/opt/apps/trama` (puerto 127.0.0.1:3260), nginx +
 Certbot delante; pasos completos en `docs/DESPLIEGUE.md`.
