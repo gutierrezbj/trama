@@ -77,7 +77,7 @@ export function ImportView({ config, busy, onImported, onOpenPack }: Props) {
                   <div className="progress"><div style={{ width: `${(inDrive / all) * 100}%` }} /></div>
                   {running && <div className="tiny">Subiendo: {running.message}{queued ? ` · ${queued} en cola` : ""}</div>}
                   <div className="row" style={{ flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
-                    <button type="button" className="btn small" onClick={() => api.packsDriveScan().then((r) => { setError(r.new ? `${r.new} packs nuevos encontrados en Drive: indexando y generando vistas previas` : `Nada nuevo: ${r.in_drive} packs en Drive, todos catalogados`); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Buscar packs nuevos en Drive</button>
+                    <button type="button" className="btn small" onClick={() => api.packsDriveScan().then((r) => { setError(r.new || r.updated ? `${r.new} packs nuevos y ${r.updated} cambiados en Drive: indexando y generando vistas previas` : `Nada nuevo: ${r.in_drive} packs en Drive, todos catalogados`); packs.reload(true); jobs.reload(true); }).catch((e) => setError((e as Error).message))}>Buscar packs nuevos en Drive</button>
                     <span className="tiny">Sube el ZIP a tu Drive, carpeta TRAMA/Packs, y pulsa aquí.</span>
                   </div>
                   {inDrive < all && !running && !queued && (
