@@ -510,7 +510,7 @@ def test_drive_scan_indexes_new_pack_uploaded_elsewhere(drive_env):
     url = client.post("/api/drive/auth/start").json()["url"]
     state = re.search(r"state=([^&]+)", url).group(1)
     client.get("/api/drive/auth/callback", params={"state": state, "code": "codigo-ok"}, follow_redirects=False)
-    assert client.post("/api/packs/drive-scan").json() == {"in_drive": 0, "new": 0, "other_files": 0}
+    assert client.post("/api/packs/drive-scan").json() == {"in_drive": 0, "new": 0, "updated": 0, "other_files": 0}
 
     # Otro equipo sube un pack nuevo a TRAMA/Packs.
     import io
@@ -525,7 +525,7 @@ def test_drive_scan_indexes_new_pack_uploaded_elsewhere(drive_env):
     fake.files["ebook"] = {"id": "ebook", "name": "guia.pdf", "size": "10", "md5Checksum": "x", "trashed": False, "data": b"0123456789", "parent": packs_folder}
 
     r = client.post("/api/packs/drive-scan").json()
-    assert r == {"in_drive": 1, "new": 1, "other_files": 1}
+    assert r == {"in_drive": 1, "new": 1, "updated": 0, "other_files": 1}
     wait_idle(client)
     pack = next(p for p in client.get("/api/packs").json() if p["label"].startswith("NUEVO PACK"))
     assert pack["status"] == "indexed" and pack["entries_media"] == 2 and pack["drive_verified_at"]
@@ -534,6 +534,34 @@ def test_drive_scan_indexes_new_pack_uploaded_elsewhere(drive_env):
     assert all(a["preview"]["status"] == "ready" and a["archived"] for a in items)
     assert not (root / "NUEVO PACK.zip").exists()
     assert client.post("/api/packs/drive-scan").json()["new"] == 0
+
+    def rezip(extra: dict) -> bytes:
+        b = io.BytesIO()
+        with _zip.ZipFile(b, "w", _zip.ZIP_DEFLATED) as zf:
+            zf.write(files["audio"], "Audio/tono.wav")
+            zf.write(files["opaque"], "Clips/clip.mp4")
+            for name, path in extra.items():
+                zf.write(path, name)
+        return b.getvalue()
+
+    data = rezip({"VFX/alfa.mov": files["alpha"]})
+    fake.files["zipnuevo"].update(size=str(len(data)), md5Checksum=hashlib.md5(data).hexdigest(), data=data)
+    assert client.post("/api/packs/drive-scan").json() == {"in_drive": 1, "new": 0, "updated": 1, "other_files": 1}
+    wait_idle(client)
+    pack = client.get(f"/api/packs/{pack['id']}").json()
+    assert pack["status"] == "indexed" and pack["entries_media"] == 3 and pack["size"] == len(data)
+    items = client.get("/api/assets", params={"pack_id": pack["id"], "limit": 50}).json()["items"]
+    assert sorted(a["original_title"] for a in items) == ["alfa.mov", "clip.mp4", "tono.wav"]
+    assert all(a["preview"]["status"] == "ready" for a in items)
+
+    data = rezip({"VFX/alfa.mov": files["alpha"], "Audio/otro.wav": files["audio"]})
+    del fake.files["zipnuevo"]
+    fake.files["zipotro"] = {"id": "zipotro", "name": "NUEVO PACK.zip", "size": str(len(data)), "md5Checksum": hashlib.md5(data).hexdigest(), "trashed": False, "data": data, "parent": packs_folder}
+    assert client.post("/api/packs/drive-scan").json()["updated"] == 1
+    wait_idle(client)
+    pack = client.get(f"/api/packs/{pack['id']}").json()
+    assert pack["drive_file_id"] == "zipotro" and pack["entries_total"] == 4
+    assert client.post("/api/packs/drive-scan").json()["updated"] == 0
 
 
 def test_subir_zip_de_zips_a_drive_sin_duplicados(drive_env, tmp_path):

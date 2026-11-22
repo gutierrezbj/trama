@@ -293,6 +293,27 @@ def index_pack(db: Database, settings: Settings, pack_id: str, should_cancel: Ca
     return stats
 
 
+def refresh_drive_packs(db: Database, files: list[dict], source_id: str) -> list[str]:
+    zips = {f["id"]: f for f in files if (f.get("name") or "").lower().endswith(".zip")}
+    changed: list[str] = []
+    with db.tx() as conn:
+        for p in conn.execute("SELECT id, rel_path, drive_file_id, drive_md5 FROM packs WHERE source_id = ? AND drive_file_id IS NOT NULL", (source_id,)).fetchall():
+            f = zips.get(p["drive_file_id"])
+            if f is None:
+                same = [g for g in zips.values() if g.get("name") == p["rel_path"]]
+                if len(same) != 1 or conn.execute("SELECT 1 FROM packs WHERE drive_file_id = ?", (same[0]["id"],)).fetchone():
+                    continue
+                f = same[0]
+            if not f.get("md5Checksum") or (f["id"] == p["drive_file_id"] and f["md5Checksum"] == p["drive_md5"]):
+                continue
+            conn.execute(
+                "UPDATE packs SET drive_file_id = ?, drive_md5 = ?, size = ?, drive_verified_at = ?, status = 'pending' WHERE id = ?",
+                (f["id"], f["md5Checksum"], int(f.get("size") or 0), now_iso(), p["id"]),
+            )
+            changed.append(p["id"])
+    return changed
+
+
 def register_drive_packs(db: Database, files: list[dict], source_id: str) -> list[str]:
     """Da de alta como packs los ZIP de la carpeta TRAMA/Packs de Drive que el catálogo aún no
     conoce (ni por id de Drive ni por md5). Devuelve los ids de los packs nuevos."""
